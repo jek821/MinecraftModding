@@ -1,0 +1,40 @@
+{
+	"credit": "Made with Blockbench",
+	"textures": {
+		"0": "jacobmod:item/wand",
+		"particle": "jacobmod:item/wand"
+	},
+	"elements": [
+		{
+			"from": [9, 1, -0.1],
+			"to": [10, 11, 0.9],
+			"rotation": {"angle": 0, "axis": "y", "origin": [8, 1, -0.1]},
+			"faces": {
+				"north": {"uv": [0, 0, 1, 10], "texture": "#0"},
+				"east": {"uv": [1, 0, 2, 10], "texture": "#0"},
+				"south": {"uv": [2, 0, 3, 10], "texture": "#0"},
+				"west": {"uv": [3, 0, 4, 10], "texture": "#0"},
+				"up": {"uv": [5, 1, 4, 0], "texture": "#0"},
+				"down": {"uv": [5, 1, 4, 2], "texture": "#0"}
+			}
+		}
+	],
+	"display": {
+		"thirdperson_righthand": {
+			"translation": [-1.25, 5, 8.75]
+		},
+		"ground": {
+			"rotation": [90, 0, 0],
+			"translation": [-1.25, -10, 2]
+		}
+	},
+	"groups": [
+		{
+			"name": "Wand",
+			"origin": [8, 8, 8],
+			"scope": 0,
+			"color": 0,
+			"children": [0]
+		}
+	]
+}
