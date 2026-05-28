@@ -20,5 +20,6 @@ public class  JacobMod implements ModInitializer {
 		// Proceed with mild caution.
 
 		ModItems.registerModItems();
+        ModBlocks.registerModBlocks();
 	}
 }
