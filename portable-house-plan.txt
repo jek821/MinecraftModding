@@ -1,0 +1,642 @@
+PORTABLE HOUSE — IMPLEMENTATION PLAN
+=====================================
+Work through each step in order. Test after every step before moving on.
+12 steps total.
+
+
+WHAT IS NBT?
+------------
+NBT (Named Binary Tag) is Minecraft's native format for saving data to disk,
+to items, and over the network. In Java it appears as CompoundTag — a typed
+HashMap. You write tag.putInt("x", 10) and read back tag.getInt("x"). Every
+piece of persistent data in the game uses it: chunk blocks, entity health, chest
+inventories, sign text. When you call StructureTemplate.save() or
+BlockEntity.saveToItem(), they produce a CompoundTag you can store anywhere.
+
+
+INTENDED BEHAVIOUR (FULL LOOP)
+-------------------------------
+1.  Player places the portable house block inside or near their house.
+2.  Player right-clicks the block → a selection GUI opens.
+3.  In the GUI the player sets min corner offsets and size (relative to the block)
+    and optionally adds block IDs to filter (e.g. "minecraft:dirt").
+4.  Player clicks Capture in the GUI.
+    - The region is snapshotted into the block entity.
+    - Blocks in the region (except filtered ones) are removed from the world.
+5.  Player breaks the block to pick it up as an item carrying all the data.
+6.  Player goes somewhere new and places the item.
+    - The terrain in that space is saved first (terrainData).
+    - The house is rebuilt around the new position.
+      Filtered blocks are skipped on restore (treated as transparent).
+    - The portable house block stays placed inside the restored house.
+7.  Player breaks the block again to pick it up.
+    - The house blocks disappear.
+    - The terrain saved in step 6 is restored.
+8.  Repeat from step 6.
+
+
+FILES
+-----
+NEW:
+  block/PortableHouseBlockEntity.java           stores house + terrain data
+  block/PortableHouseBlockItem.java             controls place behaviour
+  block/PortableHouseScreen.java                client-side selection GUI
+  network/OpenPortableHouseGuiPayload.java      S2C packet: open GUI on client
+  network/UpdatePortableHouseRegionPayload.java C2S packet: submit settings from GUI
+  ModBlockEntities.java                         registers the block entity type
+  JacobModClient.java                           client entrypoint (packet handlers)
+
+MODIFY:
+  block/PortableHouseBlock.java    right-click sends open-GUI packet, onRemove restores terrain
+  ModBlocks.java                   swap in PortableHouseBlockItem
+  JacobMod.java                    register packets + block entities
+  fabric.mod.json                  add client entrypoint
+
+
+================================================================================
+STEP 1 — Create an empty BlockEntity class
+Goal: Learn what a BlockEntity is and the minimum code it needs.
+Files: + block/PortableHouseBlockEntity.java
+================================================================================
+
+Create PortableHouseBlockEntity.java in the block/ package.
+
+  public class PortableHouseBlockEntity extends BlockEntity {
+
+      public PortableHouseBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
+          super(type, pos, state);
+      }
+
+      @Override
+      protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
+          super.saveAdditional(tag, registries);
+          // empty for now
+      }
+
+      @Override
+      public void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
+          super.loadAdditional(tag, registries);
+          // empty for now
+      }
+  }
+
+KEY CONCEPT — CompoundTag
+  Think of CompoundTag as a HashMap<String, Object> that Minecraft knows how to
+  write to disk. tag.putInt("key", value), tag.putString("key", value), etc.
+  Read back with tag.getInt("key"). Chests use it for inventory, signs use it
+  for text, you'll use it for house structure data.
+
+
+================================================================================
+STEP 2 — Register the BlockEntityType
+Goal: Learn how Minecraft's registry system works for block entities.
+Files: + ModBlockEntities.java, ~ JacobMod.java
+================================================================================
+
+Create ModBlockEntities.java:
+
+  public class ModBlockEntities {
+      public static final BlockEntityType<PortableHouseBlockEntity> PORTABLE_HOUSE =
+          Registry.register(
+              BuiltInRegistries.BLOCK_ENTITY_TYPE,
+              Identifier.fromNamespaceAndPath("jacobmod", "portable_house"),
+              BlockEntityType.Builder
+                  .of(PortableHouseBlockEntity::new, ModBlocks.PORTABLEHOUSE)
+                  .build(null)
+          );
+
+      public static void registerModBlockEntities() {
+          JacobMod.LOGGER.info("Registering block entities for " + JacobMod.MOD_ID);
+      }
+  }
+
+In JacobMod.onInitialize(), add:
+  ModBlockEntities.registerModBlockEntities();
+
+KEY CONCEPT — BlockEntityType
+  Acts as a factory and validator. It says: "positions that hold a portable_house
+  block are allowed to have a PortableHouseBlockEntity attached, and here's how to
+  construct one." Minecraft uses it when loading chunks.
+
+
+================================================================================
+STEP 3 — Connect the BlockEntity to the Block
+Goal: Wire the registered type back into the block.
+Files: ~ PortableHouseBlock.java, ~ PortableHouseBlockEntity.java
+================================================================================
+
+In PortableHouseBlock.java update newBlockEntity():
+  return new PortableHouseBlockEntity(pos, state);
+
+In PortableHouseBlockEntity, pass the registered type to super:
+  super(ModBlockEntities.PORTABLE_HOUSE, pos, state);
+
+TEST: Launch the game and place the block. If it doesn't crash, the block entity
+is working. Press F3 and look at the block — the debug overlay should show the
+block entity type on the right side of the screen.
+
+
+================================================================================
+STEP 4 — Add right-click interaction
+Goal: Learn the server/client split and how to intercept player actions.
+Files: ~ PortableHouseBlock.java
+================================================================================
+
+Override useWithoutItem() in PortableHouseBlock.java:
+
+  @Override
+  protected InteractionResult useWithoutItem(
+      BlockState state, Level level, BlockPos pos,
+      Player player, BlockHitResult hit
+  ) {
+      if (level.isClientSide()) return InteractionResult.SUCCESS;
+      player.sendSystemMessage(Component.literal("Right clicked portable house!"));
+      return InteractionResult.SUCCESS;
+  }
+
+KEY CONCEPT — Server vs Client
+  The world runs on both the server (real game state) and the client (your screen,
+  visual copy only). useWithoutItem() is called on both sides. The isClientSide()
+  guard ensures real logic only runs on the server. Almost all block and item logic
+  follows this pattern.
+
+TEST: Right-click the placed block without holding an item. See the message in chat.
+
+
+================================================================================
+STEP 5 — Add region and filter fields to the BlockEntity
+Goal: Define all the data the block entity needs to store.
+Files: ~ PortableHouseBlockEntity.java
+================================================================================
+
+Add these public fields:
+
+  public Vec3i relativeMin  = new Vec3i(-5, -3, -5);   // offset from block to min corner
+  public Vec3i size         = new Vec3i(10, 8, 10);     // dimensions of the capture region
+  public List<String> blockFilter = new ArrayList<>();   // block IDs to skip on restore
+  public CompoundTag houseData    = null;                // captured house structure
+  public CompoundTag terrainData  = null;                // terrain saved before last placement
+
+Save and load all of them in saveAdditional / loadAdditional:
+
+  // saveAdditional:
+  super.saveAdditional(tag, registries);
+  tag.putInt("minX", relativeMin.getX());
+  tag.putInt("minY", relativeMin.getY());
+  tag.putInt("minZ", relativeMin.getZ());
+  tag.putInt("sizeX", size.getX());
+  tag.putInt("sizeY", size.getY());
+  tag.putInt("sizeZ", size.getZ());
+  ListTag filterTag = new ListTag();
+  blockFilter.forEach(id -> filterTag.add(StringTag.valueOf(id)));
+  tag.put("blockFilter", filterTag);
+  if (houseData   != null) tag.put("houseData",   houseData);
+  if (terrainData != null) tag.put("terrainData", terrainData);
+
+  // loadAdditional:
+  super.loadAdditional(tag, registries);
+  relativeMin = new Vec3i(tag.getInt("minX"), tag.getInt("minY"), tag.getInt("minZ"));
+  size        = new Vec3i(tag.getInt("sizeX"), tag.getInt("sizeY"), tag.getInt("sizeZ"));
+  blockFilter = new ArrayList<>();
+  tag.getList("blockFilter", Tag.TAG_STRING)
+     .forEach(t -> blockFilter.add(t.getAsString()));
+  houseData   = tag.contains("houseData")   ? tag.getCompound("houseData")   : null;
+  terrainData = tag.contains("terrainData") ? tag.getCompound("terrainData") : null;
+
+KEY CONCEPT — Relative vs Absolute positions
+  Store the region as an offset relative to the portable house block, not as
+  absolute world coordinates. When you place the item somewhere new, compute:
+    BlockPos absoluteMin = newPlacedPos.offset(relativeMin);
+  If you stored absolute coordinates, placing the house elsewhere would rebuild
+  it back at the original world position instead of the new one.
+
+TEST: No visible change yet. Should still compile and place without crashing.
+
+
+================================================================================
+STEP 6 — Build the selection GUI
+Goal: Open an in-game screen so the player can set corners and filter blocks.
+Files: + network/OpenPortableHouseGuiPayload.java
+       + network/UpdatePortableHouseRegionPayload.java
+       + block/PortableHouseScreen.java
+       + JacobModClient.java
+       ~ JacobMod.java
+       ~ PortableHouseBlock.java
+       ~ fabric.mod.json
+================================================================================
+
+This step has multiple parts. Work through them in order.
+
+--- 6a: S2C packet — server tells the client to open the GUI ---
+
+Create network/OpenPortableHouseGuiPayload.java:
+
+  public record OpenPortableHouseGuiPayload(
+      BlockPos pos, Vec3i relativeMin, Vec3i size, List<String> blockFilter
+  ) implements CustomPacketPayload {
+
+      public static final Type<OpenPortableHouseGuiPayload> TYPE =
+          new Type<>(Identifier.of("jacobmod", "open_portable_house_gui"));
+
+      public static final StreamCodec<FriendlyByteBuf, OpenPortableHouseGuiPayload> CODEC =
+          StreamCodec.composite(
+              BlockPos.STREAM_CODEC,                         OpenPortableHouseGuiPayload::pos,
+              ByteBufCodecs.fromCodec(Vec3i.CODEC),          OpenPortableHouseGuiPayload::relativeMin,
+              ByteBufCodecs.fromCodec(Vec3i.CODEC),          OpenPortableHouseGuiPayload::size,
+              ByteBufCodecs.fromCodec(Codec.list(Codec.STRING)), OpenPortableHouseGuiPayload::blockFilter,
+              OpenPortableHouseGuiPayload::new
+          );
+
+      @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+  }
+
+--- 6b: C2S packet — client sends the region settings back to the server ---
+
+Create network/UpdatePortableHouseRegionPayload.java with the same structure
+(same four fields: pos, relativeMin, size, blockFilter) but registered as C2S.
+
+--- 6c: Register both packets in JacobMod.onInitialize() ---
+
+  // Register packet types (must happen on both sides)
+  PayloadTypeRegistry.playS2C().register(
+      OpenPortableHouseGuiPayload.TYPE, OpenPortableHouseGuiPayload.CODEC);
+  PayloadTypeRegistry.playC2S().register(
+      UpdatePortableHouseRegionPayload.TYPE, UpdatePortableHouseRegionPayload.CODEC);
+
+  // Handle the incoming C2S packet on the server
+  ServerPlayNetworking.registerGlobalReceiver(
+      UpdatePortableHouseRegionPayload.TYPE, (payload, context) -> {
+          context.server().execute(() -> {
+              ServerLevel level = context.player().serverLevel();
+              if (!(level.getBlockEntity(payload.pos())
+                      instanceof PortableHouseBlockEntity be)) return;
+              be.relativeMin  = payload.relativeMin();
+              be.size         = payload.size();
+              be.blockFilter  = new ArrayList<>(payload.blockFilter());
+              be.setChanged();
+              captureHouse(level, payload.pos(), be); // defined in Step 7
+          });
+      });
+
+--- 6d: Create JacobModClient.java (client entrypoint) ---
+
+  public class JacobModClient implements ClientModInitializer {
+      @Override
+      public void onInitializeClient() {
+          ClientPlayNetworking.registerGlobalReceiver(
+              OpenPortableHouseGuiPayload.TYPE, (payload, context) -> {
+                  context.client().execute(() ->
+                      context.client().setScreen(new PortableHouseScreen(
+                          payload.pos(), payload.relativeMin(),
+                          payload.size(), payload.blockFilter()
+                      ))
+                  );
+              });
+      }
+  }
+
+In fabric.mod.json add the client entrypoint:
+  "client": ["com.jemanuel.jacobmod.JacobModClient"]
+
+--- 6e: Create block/PortableHouseScreen.java ---
+
+  public class PortableHouseScreen extends Screen {
+      private final BlockPos blockPos;
+      // EditBox widgets for the 6 region numbers
+      private EditBox minXBox, minYBox, minZBox, sizeXBox, sizeYBox, sizeZBox;
+      private EditBox filterBox; // comma-separated block IDs
+
+      public PortableHouseScreen(BlockPos pos, Vec3i relMin, Vec3i sz, List<String> filter) {
+          super(Component.literal("Select Capture Region"));
+          this.blockPos = pos;
+          // store initial values to pre-fill the fields
+      }
+
+      @Override
+      protected void init() {
+          int cx = width / 2, cy = height / 2;
+
+          minXBox = addRenderableWidget(new EditBox(font, cx-130, cy-60, 50, 20,
+              Component.literal("Min X")));
+          minXBox.setValue(String.valueOf(/* stored relMin.getX() */));
+          // repeat for minY, minZ, sizeX, sizeY, sizeZ
+
+          filterBox = addRenderableWidget(new EditBox(font, cx-100, cy+10, 200, 20,
+              Component.literal("Filter blocks (comma-separated IDs)")));
+
+          addRenderableWidget(Button.builder(Component.literal("Capture"), btn -> {
+              sendCapture();
+              onClose();
+          }).pos(cx - 50, cy + 40).size(100, 20).build());
+      }
+
+      private void sendCapture() {
+          Vec3i newMin  = new Vec3i(parseInt(minXBox), parseInt(minYBox), parseInt(minZBox));
+          Vec3i newSize = new Vec3i(parseInt(sizeXBox), parseInt(sizeYBox), parseInt(sizeZBox));
+          List<String> filter = Arrays.stream(filterBox.getValue().split(","))
+              .map(String::trim).filter(s -> !s.isEmpty()).toList();
+          ClientPlayNetworking.send(
+              new UpdatePortableHouseRegionPayload(blockPos, newMin, newSize, filter));
+      }
+
+      @Override
+      public void render(GuiGraphics g, int mx, int my, float delta) {
+          renderBackground(g, mx, my, delta);
+          g.drawCenteredString(font, title, width/2, height/2 - 85, 0xFFFFFF);
+          super.render(g, mx, my, delta);
+      }
+
+      @Override public boolean isPauseScreen() { return false; }
+  }
+
+Update useWithoutItem() in PortableHouseBlock to send the S2C packet instead of
+the test chat message:
+
+  if (level.isClientSide()) return InteractionResult.SUCCESS;
+  if (!(level.getBlockEntity(pos) instanceof PortableHouseBlockEntity be))
+      return InteractionResult.FAIL;
+  ServerPlayNetworking.send((ServerPlayer) player,
+      new OpenPortableHouseGuiPayload(pos, be.relativeMin, be.size, be.blockFilter));
+  return InteractionResult.SUCCESS;
+
+TEST: Right-click the block. A screen should open with fields pre-filled with
+the default values. Typing new values and clicking Capture should (not yet do
+anything visible — that comes in Step 7) close the screen without crashing.
+
+
+================================================================================
+STEP 7 — Capture the structure
+Goal: Snapshot the house into the block entity and remove it from the world.
+Files: ~ PortableHouseBlock.java
+================================================================================
+
+Add a static captureHouse() method to PortableHouseBlock (called from the packet
+handler registered in Step 6c):
+
+  public static void captureHouse(ServerLevel level, BlockPos pos,
+                                   PortableHouseBlockEntity be) {
+      BlockPos absoluteMin = pos.offset(be.relativeMin);
+      BlockPos sizePos     = new BlockPos(be.size.getX(), be.size.getY(), be.size.getZ());
+
+      // Snapshot the region
+      StructureTemplate template = new StructureTemplate();
+      template.fillFromWorld(level, absoluteMin, sizePos, false, Blocks.STRUCTURE_VOID);
+      be.houseData = template.save(new CompoundTag());
+
+      // Remove captured blocks from the world (the house now lives in the item)
+      // Skip filtered blocks — they stay in the world as part of the natural terrain
+      Set<Block> filtered = be.blockFilter.stream()
+          .map(id -> BuiltInRegistries.BLOCK.get(Identifier.parse(id)))
+          .filter(b -> b != Blocks.AIR)
+          .collect(Collectors.toSet());
+
+      BlockPos.betweenClosed(absoluteMin,
+              absoluteMin.offset(be.size.getX()-1, be.size.getY()-1, be.size.getZ()-1))
+          .forEach(p -> {
+              if (p.equals(pos)) return; // never remove the portable house block itself
+              BlockState bs = level.getBlockState(p);
+              if (!filtered.contains(bs.getBlock())) {
+                  level.removeBlock(p, false);
+              }
+          });
+
+      be.setChanged();
+      level.sendBlockUpdated(pos, level.getBlockState(pos), level.getBlockState(pos), 3);
+      // Notify the player however you like — chat message, sound, etc.
+  }
+
+KEY CONCEPT — Block filtering on restore
+  The houseData NBT contains ALL blocks in the region including filtered ones.
+  The filtering is applied on RESTORE using a StructureProcessor (see Step 10).
+  The processor simply returns null for any block whose ID is in the filter list,
+  which causes placeInWorld() to skip it (leave that position as-is).
+
+  StructureProcessor subclass:
+    class BlockFilterProcessor extends StructureProcessor {
+        private final Set<Block> filtered;
+        BlockFilterProcessor(Set<Block> f) { this.filtered = f; }
+
+        @Override
+        public StructureBlockInfo processBlock(LevelReader level,
+                BlockPos offset, BlockPos pos,
+                StructureBlockInfo original, StructureBlockInfo relative,
+                StructurePlaceSettings settings) {
+            return filtered.contains(relative.state().getBlock()) ? null : relative;
+        }
+
+        @Override
+        protected StructureProcessorType<?> getType() {
+            return StructureProcessorType.NOOP;
+        }
+    }
+
+TEST: Open the GUI, set a small region (e.g. min=-3,-2,-3, size=6,4,6), click
+Capture. The blocks in that region should disappear from the world. A sound or
+chat message should confirm. Breaking the block should give you an item.
+
+
+================================================================================
+STEP 8 — Copy the BlockEntity data into the dropped item
+Goal: When the block is broken, all the house data travels with the item stack.
+Files: ~ PortableHouseBlock.java
+================================================================================
+
+Override getDrops() in PortableHouseBlock:
+
+  @Override
+  public List<ItemStack> getDrops(BlockState state, LootParams.Builder builder) {
+      BlockEntity be = builder.getOptionalParameter(LootContextParams.BLOCK_ENTITY);
+      ItemStack stack = new ItemStack(this);
+      if (be != null) {
+          be.saveToItem(stack, builder.create(LootContextParamSets.EMPTY)
+              .getLevel().registryAccess());
+      }
+      return List.of(stack);
+  }
+
+KEY CONCEPT — saveToItem()
+  Calls your saveAdditional() internally and stores everything under a special
+  BlockEntityTag component on the item stack. This is how vanilla chests keep
+  their inventory when broken — no manual field copying needed.
+
+TEST: Capture a region, break the block. Hold the dropped item and run:
+  /data get entity @s SelectedItem
+You should see houseData nested inside the item's NBT blob.
+
+
+================================================================================
+STEP 9 — Create a custom BlockItem subclass
+Goal: Get a hook point to override placement behaviour in Step 10.
+Files: + block/PortableHouseBlockItem.java, ~ ModBlocks.java
+================================================================================
+
+Create PortableHouseBlockItem.java:
+
+  public class PortableHouseBlockItem extends BlockItem {
+      public PortableHouseBlockItem(Block block, Item.Properties properties) {
+          super(block, properties);
+      }
+
+      @Override
+      public InteractionResult place(BlockPlaceContext context) {
+          return super.place(context); // passthrough for now
+      }
+  }
+
+In ModBlocks.java replace new BlockItem(block, ...) with:
+  new PortableHouseBlockItem(block, new Item.Properties().setId(itemKey).useBlockDescriptionPrefix())
+
+TEST: Item should still place the block normally. Nothing should change visually.
+
+
+================================================================================
+STEP 10 — Save terrain then restore house on place
+Goal: When the item is placed, snapshot the existing terrain first, then rebuild
+      the house. The terrain snapshot lets you restore it when the house leaves.
+Files: ~ block/PortableHouseBlockItem.java
+================================================================================
+
+  @Override
+  public InteractionResult place(BlockPlaceContext context) {
+      InteractionResult result = super.place(context);
+      if (!result.consumesAction()) return result;
+
+      Level level = context.getLevel();
+      if (level.isClientSide()) return result;
+
+      BlockPos placedPos = context.getClickedPos();
+      if (!(level.getBlockEntity(placedPos) instanceof PortableHouseBlockEntity be))
+          return result;
+      if (be.houseData == null) return result;
+
+      BlockPos absoluteMin = placedPos.offset(be.relativeMin);
+      BlockPos sizePos     = new BlockPos(be.size.getX(), be.size.getY(), be.size.getZ());
+
+      // 1. Save what's currently here so we can restore it on pickup
+      StructureTemplate terrain = new StructureTemplate();
+      terrain.fillFromWorld(level, absoluteMin, sizePos, false, Blocks.STRUCTURE_VOID);
+      be.terrainData = terrain.save(new CompoundTag());
+
+      // 2. Restore the house, applying the block filter via a StructureProcessor
+      Set<Block> filtered = be.blockFilter.stream()
+          .map(id -> BuiltInRegistries.BLOCK.get(Identifier.parse(id)))
+          .filter(b -> b != Blocks.AIR)
+          .collect(Collectors.toSet());
+      StructurePlaceSettings settings = new StructurePlaceSettings()
+          .addProcessor(new BlockFilterProcessor(filtered));
+
+      StructureTemplate house = new StructureTemplate();
+      house.load(level.registryAccess(), be.houseData);
+      house.placeInWorld(level, absoluteMin, absoluteMin, settings, level.getRandom(), 2);
+
+      be.setChanged();
+      level.sendBlockUpdated(placedPos, level.getBlockState(placedPos),
+          level.getBlockState(placedPos), 3);
+
+      return result;
+  }
+
+NOTE: absoluteMin uses placedPos (the new placement position), not the original
+capture position. relativeMin is stored relative to the block, so
+placedPos.offset(relativeMin) always gives the correct absolute min corner
+regardless of where in the world the item is placed.
+
+TEST: Capture a region, break the block, walk somewhere new, place the item.
+The house should rebuild at the new location. The terrain underneath should
+be overwritten (but saved internally so it can be restored).
+
+
+================================================================================
+STEP 11 — Restore terrain on pickup
+Goal: When the block is broken, remove the house and put back whatever was
+      in that space before the house arrived.
+Files: ~ PortableHouseBlock.java
+================================================================================
+
+Override onRemove() in PortableHouseBlock:
+
+  @Override
+  public void onRemove(BlockState state, Level level, BlockPos pos,
+                       BlockState newState, boolean movedByPiston) {
+      if (!level.isClientSide() && !state.is(newState.getBlock())) {
+          if (level.getBlockEntity(pos) instanceof PortableHouseBlockEntity be) {
+              BlockPos absoluteMin = pos.offset(be.relativeMin);
+
+              if (be.terrainData != null) {
+                  // Restore the terrain that was here before the house was placed
+                  StructureTemplate terrain = new StructureTemplate();
+                  terrain.load(level.registryAccess(), be.terrainData);
+                  terrain.placeInWorld(level, absoluteMin, absoluteMin,
+                      new StructurePlaceSettings(), level.getRandom(), 2);
+
+              } else if (be.houseData != null) {
+                  // First pickup after original capture: no terrain to restore,
+                  // just clear the region so the house vanishes
+                  BlockPos.betweenClosed(
+                      absoluteMin,
+                      absoluteMin.offset(be.size.getX()-1, be.size.getY()-1, be.size.getZ()-1)
+                  ).forEach(p -> {
+                      if (!p.equals(pos)) level.removeBlock(p, false);
+                  });
+              }
+          }
+      }
+      super.onRemove(state, level, pos, newState, movedByPiston); // MUST be last
+  }
+
+WARNING: Always call super.onRemove() LAST. It destroys the block entity — if
+you call it first, level.getBlockEntity(pos) returns null and you lose all data.
+
+TEST (full loop):
+  1. Build a small room.
+  2. Place the portable house block inside and right-click to open the GUI.
+  3. Set the region to cover the room, click Capture. Room disappears.
+  4. Break the block, walk somewhere else, place the item. Room rebuilds.
+  5. Break the block again. Room disappears, terrain from step 4's location
+     is restored.
+
+
+================================================================================
+STEP 12 — Polish and edge cases
+Goal: Make it feel like a real feature.
+================================================================================
+
+Once the full loop works, add:
+
+SOUNDS:
+  On capture:  level.playSound(null, pos, SoundEvents.ENDERMAN_TELEPORT,
+                   SoundSource.BLOCKS, 1f, 1f)
+  On restore:  level.playSound(null, pos, SoundEvents.BEACON_ACTIVATE,
+                   SoundSource.BLOCKS, 0.6f, 1f)
+
+PARTICLES:
+  On restore: loop around the region edges and spawn portal/enchantment particles
+    for (BlockPos p : BlockPos.betweenClosed(absoluteMin, absoluteMax)) {
+        if (isEdge(p, absoluteMin, absoluteMax))
+            level.addParticle(ParticleTypes.PORTAL, p.getX(), p.getY(), p.getZ(), 0,0,0);
+    }
+
+GUARD OCCUPIED SPACE:
+  Before restoring, scan the target region. If it contains non-air/non-liquid
+  blocks, warn the player with a chat message and return early:
+    player.sendSystemMessage(Component.literal(
+        "Not enough space — clear the area first."));
+
+VISUAL REGION PREVIEW:
+  When the GUI closes (or on shift+right-click), briefly show the capture region
+  outline using temporary particles so the player can confirm the bounds.
+
+ROTATION:
+  Store the player's facing direction at capture time in the block entity.
+  At restore time, build a StructurePlaceSettings with the appropriate rotation
+  (StructurePlaceSettings.setRotation(...)) so the house always faces correctly.
+
+WAND SELECTION (future):
+  A separate wand item lets the player click two corners to set relativeMin and
+  size instead of typing numbers. It fires the same UpdatePortableHouseRegionPayload
+  but without triggering the capture — add a boolean triggerCapture field to the
+  payload so the wand can just update the region and the player confirms separately.
+
+NESTED PORTABLE HOUSES:
+  Works for free — StructureTemplate saves block entity NBT recursively, so a
+  portable house block inside another portable house is fully preserved.
