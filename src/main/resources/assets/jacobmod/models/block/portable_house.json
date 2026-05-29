@@ -1,32 +1,40 @@
 {
-	"credit": "Made with Blockbench",
-	"textures": {
-		"0": "block/portable_house",
-		"particle": "block/portable_house"
-	},
-	"elements": [
-		{
-			"from": [0, 0, 0],
-			"to": [3, 3, 3],
-			"faces": {
-				"north": {"uv": [0, 0, 3, 3], "texture": "#0"},
-				"east": {"uv": [0, 3, 3, 6], "texture": "#0"},
-				"south": {"uv": [3, 0, 6, 3], "texture": "#0"},
-				"west": {"uv": [3, 3, 6, 6], "texture": "#0"},
-				"up": {"uv": [3, 9, 0, 6], "texture": "#0"},
-				"down": {"uv": [9, 0, 6, 3], "texture": "#0"}
-			}
-		}
-	],
-	"display": {
-		"thirdperson_righthand": {
-			"translation": [6.25, 8.75, 8.25]
-		},
-		"thirdperson_lefthand": {
-			"translation": [-6.25, 8.75, 8.75]
-		},
-		"ground": {
-			"translation": [8, 4.25, 5.25]
-		}
-	}
+  "credit": "Made with Blockbench",
+  "textures": {
+    "0": "jacobmod:block/portable_house",
+    "particle": "jacobmod:block/portable_house"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "north": {"uv": [0, 0, 16, 16], "texture": "#0"},
+        "east": {"uv": [0, 0, 16, 16], "texture": "#0"},
+        "south": {"uv": [0, 0, 16, 16], "texture": "#0"},
+        "west": {"uv": [0, 0, 16, 16], "texture": "#0"},
+        "up": {"uv": [0, 0, 16, 16], "texture": "#0"},
+        "down": {"uv": [0, 0, 16, 16], "texture": "#0"}
+      }
+    }
+  ],
+  "display": {
+    "thirdperson_righthand": {
+      "translation": [0.5, 1, 1.25],
+      "scale": [0.1, 0.1, 0.1]
+    },
+    "thirdperson_lefthand": {
+      "translation": [0.5, 1, 1.25],
+      "scale": [0.1, 0.1, 0.1]
+    },
+    "firstperson_righthand": {
+      "scale": [0.3, 0.3, 0.2]
+    },
+    "firstperson_lefthand": {
+      "scale": [0.3, 0.3, 0.2]
+    },
+    "ground": {
+      "translation": [5, 4.75, 5.75]
+    }
+  }
 }
