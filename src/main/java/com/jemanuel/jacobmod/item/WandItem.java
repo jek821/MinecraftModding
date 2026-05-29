@@ -22,7 +22,7 @@ public class WandItem extends Item {
     public InteractionResult use(Level level, Player player, InteractionHand hand) {
         if (!level.isClientSide()) {
             Vec3 eyePos = player.getEyePosition();
-            Vec3 endPos = eyePos.add(player.getLookAngle().scale(32.0));
+            Vec3 endPos = eyePos.add(player.getLookAngle().scale(100.0));
             BlockHitResult hit = level.clip(new ClipContext(eyePos, endPos, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
 
             Vec3 targetPos = hit.getType() == HitResult.Type.MISS ? endPos : hit.getLocation();
@@ -31,7 +31,7 @@ public class WandItem extends Item {
             lightning.setPos(targetPos.x, targetPos.y, targetPos.z);
             level.addFreshEntity(lightning);
 
-            player.getCooldowns().addCooldown(player.getItemInHand(hand), 40);
+            player.getCooldowns().addCooldown(player.getItemInHand(hand), 0);
         }
         player.swing(hand);
         return InteractionResult.SUCCESS;

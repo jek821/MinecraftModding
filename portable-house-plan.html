@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portable House — Implementation Plan</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f1117;
+      color: #d4d4d8;
+      line-height: 1.7;
+      padding: 2rem 1rem;
+    }
+
+    .page {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    header {
+      margin-bottom: 3rem;
+    }
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #f4f4f5;
+      margin-bottom: 0.4rem;
+    }
+    header p {
+      color: #71717a;
+      font-size: 0.95rem;
+    }
+
+    /* Progress bar */
+    .progress-wrap {
+      background: #27272a;
+      border-radius: 999px;
+      height: 8px;
+      margin: 1.5rem 0 0.5rem;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: #22c55e;
+      border-radius: 999px;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+    .progress-label {
+      font-size: 0.82rem;
+      color: #52525b;
+    }
+
+    /* File map */
+    .filemap {
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 10px;
+      padding: 1.2rem 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+    .filemap h2 {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #52525b;
+      margin-bottom: 0.8rem;
+    }
+    .filemap pre {
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.85rem;
+      color: #a1a1aa;
+      white-space: pre;
+    }
+    .filemap .new  { color: #4ade80; }
+    .filemap .mod  { color: #facc15; }
+
+    /* Steps */
+    .step {
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 10px;
+      margin-bottom: 1.25rem;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .step.done {
+      border-color: #166534;
+      background: #14211a;
+    }
+    .step.done .step-number { background: #166534; color: #4ade80; }
+    .step.done .step-title  { color: #86efac; }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .step-header:hover { background: rgba(255,255,255,0.02); }
+
+    .step-check {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #3f3f46;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .step.done .step-check {
+      background: #22c55e;
+      border-color: #22c55e;
+    }
+    .step-check svg { display: none; }
+    .step.done .step-check svg { display: block; }
+
+    .step-number {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      background: #27272a;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #71717a;
+    }
+
+    .step-meta {
+      flex: 1;
+    }
+    .step-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #f4f4f5;
+    }
+    .step-subtitle {
+      font-size: 0.8rem;
+      color: #52525b;
+      margin-top: 1px;
+    }
+
+    .step-toggle {
+      color: #52525b;
+      font-size: 0.75rem;
+      transition: transform 0.2s;
+    }
+    .step.open .step-toggle { transform: rotate(180deg); }
+
+    .step-body {
+      display: none;
+      padding: 0 1.25rem 1.25rem 1.25rem;
+      border-top: 1px solid #27272a;
+    }
+    .step.open .step-body { display: block; }
+
+    .step-body > * + * { margin-top: 0.9rem; }
+
+    .step-body p { color: #a1a1aa; font-size: 0.92rem; }
+
+    /* Callout boxes */
+    .callout {
+      border-radius: 7px;
+      padding: 0.8rem 1rem;
+      font-size: 0.88rem;
+    }
+    .callout-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 0.3rem;
+    }
+    .callout.concept {
+      background: #1e1b4b;
+      border-left: 3px solid #818cf8;
+    }
+    .callout.concept .callout-label { color: #818cf8; }
+    .callout.concept p { color: #c7d2fe; }
+
+    .callout.test {
+      background: #1c1917;
+      border-left: 3px solid #f97316;
+    }
+    .callout.test .callout-label { color: #f97316; }
+    .callout.test p { color: #fed7aa; }
+
+    .callout.warning {
+      background: #1c1410;
+      border-left: 3px solid #eab308;
+    }
+    .callout.warning .callout-label { color: #eab308; }
+    .callout.warning p { color: #fef08a; }
+
+    /* File chips */
+    .files {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.75rem;
+    }
+    .file-chip {
+      background: #27272a;
+      border: 1px solid #3f3f46;
+      border-radius: 5px;
+      padding: 0.2rem 0.6rem;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.75rem;
+      color: #a1a1aa;
+    }
+    .file-chip.new { border-color: #166534; color: #4ade80; background: #14211a; }
+    .file-chip.mod { border-color: #713f12; color: #facc15; background: #1c1a09; }
+
+    /* Code blocks */
+    code {
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.82rem;
+      background: #27272a;
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      color: #e4e4e7;
+    }
+    pre {
+      background: #09090b;
+      border: 1px solid #27272a;
+      border-radius: 7px;
+      padding: 1rem;
+      overflow-x: auto;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.82rem;
+      color: #e4e4e7;
+      line-height: 1.6;
+    }
+    pre .comment { color: #52525b; }
+    pre .kw      { color: #818cf8; }
+    pre .str     { color: #86efac; }
+    pre .type    { color: #67e8f9; }
+
+    /* Method list */
+    .method-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .method-list li {
+      display: flex;
+      gap: 0.6rem;
+      font-size: 0.88rem;
+      color: #a1a1aa;
+    }
+    .method-list li::before {
+      content: '→';
+      color: #3f3f46;
+      flex-shrink: 0;
+    }
+    .method-list code { font-size: 0.8rem; }
+
+    h3 {
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #52525b;
+      margin-bottom: 0.4rem;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>Portable House — Implementation Plan</h1>
+    <p>Work through each step in order. Test after every step before moving on.</p>
+    <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="progress-label" id="progressLabel">0 of 11 steps complete</div>
+  </header>
+
+  <!-- File map -->
+  <div class="filemap">
+    <h2>Files you'll touch</h2>
+    <pre><span class="new">+ block/PortableHouseBlockEntity.java</span>   stores the house data
+<span class="new">+ block/PortableHouseBlockItem.java</span>     controls place behaviour
+<span class="new">+ ModBlockEntities.java</span>                 registers the block entity type
+
+<span class="mod">~ block/PortableHouseBlock.java</span>         right-click + break behaviour
+<span class="mod">~ ModBlocks.java</span>                        swap in your new BlockItem
+<span class="mod">~ JacobMod.java</span>                         call registerModBlockEntities()</pre>
+  </div>
+
+  <!-- Steps -->
+
+  <div class="step" id="step-1">
+    <div class="step-header" onclick="toggleStep('step-1')">
+      <div class="step-check" onclick="toggleDone(event,'step-1')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">1</div>
+      <div class="step-meta">
+        <div class="step-title">Create an empty BlockEntity class</div>
+        <div class="step-subtitle">Learn what a BlockEntity is and the minimum code it needs</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <div class="files">
+        <span class="file-chip new">+ PortableHouseBlockEntity.java</span>
+      </div>
+      <p>Create <code>PortableHouseBlockEntity.java</code> in the <code>block/</code> package. It needs to extend <code>BlockEntity</code> and override two methods for saving and loading data. Both methods can have empty bodies for now — the goal is just a class that compiles.</p>
+
+      <h3>Methods to implement</h3>
+      <ul class="method-list">
+        <li>Constructor <code>(BlockEntityType&lt;?&gt; type, BlockPos pos, BlockState state)</code> — passes all three up to <code>super(...)</code>. You'll fill in the type argument in Step 3.</li>
+        <li><code>saveAdditional(CompoundTag tag, HolderLookup.Provider registries)</code> — called automatically when Minecraft saves this block to disk. Leave empty for now.</li>
+        <li><code>loadAdditional(CompoundTag tag, HolderLookup.Provider registries)</code> — called when Minecraft reads it back. Leave empty for now.</li>
+      </ul>
+
+      <div class="callout concept">
+        <div class="callout-label">Key Concept — CompoundTag</div>
+        <p>Think of <code>CompoundTag</code> as a <code>HashMap&lt;String, Object&gt;</code> that Minecraft knows how to write to disk. You put things in with <code>tag.putInt("key", value)</code>, <code>tag.putString("key", value)</code>, etc., and read them back with <code>tag.getInt("key")</code>. This is how all block entity data is persisted — chests use it for inventory, signs use it for text, and you'll use it for house structure data.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-2">
+    <div class="step-header" onclick="toggleStep('step-2')">
+      <div class="step-check" onclick="toggleDone(event,'step-2')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">2</div>
+      <div class="step-meta">
+        <div class="step-title">Register the BlockEntityType</div>
+        <div class="step-subtitle">Learn how Minecraft's registry system works for block entities</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <div class="files">
+        <span class="file-chip new">+ ModBlockEntities.java</span>
+        <span class="file-chip mod">~ JacobMod.java</span>
+      </div>
+      <p>Create <code>ModBlockEntities.java</code> modelled after <code>ModBlocks.java</code>. Register a <code>BlockEntityType</code> that links your new class to your block:</p>
+
+      <pre><span class="kw">public static final</span> <span class="type">BlockEntityType</span>&lt;<span class="type">PortableHouseBlockEntity</span>&gt; PORTABLE_HOUSE =
+    Registry.register(
+        BuiltInRegistries.BLOCK_ENTITY_TYPE,
+        Identifier.fromNamespaceAndPath(<span class="str">"jacobmod"</span>, <span class="str">"portable_house"</span>),
+        BlockEntityType.Builder
+            .of(<span class="type">PortableHouseBlockEntity</span>::<span class="kw">new</span>, ModBlocks.PORTABLEHOUSE)
+            .build(<span class="kw">null</span>)
+    );</pre>
+
+      <p>Add a <code>registerModBlockEntities()</code> method (empty body is fine — calling it forces the class to load and run the static field above). Then call it from <code>JacobMod.onInitialize()</code>.</p>
+
+      <div class="callout concept">
+        <div class="callout-label">Key Concept — BlockEntityType</div>
+        <p>The <code>BlockEntityType</code> is a registry entry that acts as a factory and validator. It says: "positions that hold a <code>portable_house</code> block are allowed to have a <code>PortableHouseBlockEntity</code> attached, and here's how to construct one." Minecraft uses it internally to create and look up block entities when loading chunks.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-3">
+    <div class="step-header" onclick="toggleStep('step-3')">
+      <div class="step-check" onclick="toggleDone(event,'step-3')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">3</div>
+      <div class="step-meta">
+        <div class="step-title">Connect the BlockEntity to the Block</div>
+        <div class="step-subtitle">Wire the registered type back into the block</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <div class="files">
+        <span class="file-chip mod">~ PortableHouseBlock.java</span>
+        <span class="file-chip mod">~ PortableHouseBlockEntity.java</span>
+      </div>
+      <p>In <code>PortableHouseBlock.java</code>, update <code>newBlockEntity()</code> to return a real instance:</p>
+      <pre><span class="kw">return new</span> <span class="type">PortableHouseBlockEntity</span>(pos, state);</pre>
+
+      <p>Then go back to your <code>PortableHouseBlockEntity</code> constructor and pass the registered type as the first argument to <code>super</code>:</p>
+      <pre><span class="kw">super</span>(ModBlockEntities.PORTABLE_HOUSE, pos, state);</pre>
+
+      <div class="callout test">
+        <div class="callout-label">Test</div>
+        <p>Launch the game and place the block. If it doesn't crash, the block entity is working. Press F3 and look at the block — it should show the block entity type in the debug overlay on the right side of the screen.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-4">
+    <div class="step-header" onclick="toggleStep('step-4')">
+      <div class="step-check" onclick="toggleDone(event,'step-4')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">4</div>
+      <div class="step-meta">
+        <div class="step-title">Add right-click interaction</div>
+        <div class="step-subtitle">Learn the server/client split and how to intercept player actions</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <div class="files">
+        <span class="file-chip mod">~ PortableHouseBlock.java</span>
+      </div>
+      <p>Override <code>useWithoutItem()</code> in <code>PortableHouseBlock.java</code>. For now just send a chat message to confirm it works:</p>
+
+      <pre><span class="kw">@Override</span>
+<span class="kw">protected</span> <span class="type">InteractionResult</span> useWithoutItem(
+    <span class="type">BlockState</span> state, <span class="type">Level</span> level, <span class="type">BlockPos</span> pos,
+    <span class="type">Player</span> player, <span class="type">BlockHitResult</span> hit
+) {
+    <span class="kw">if</span> (level.isClientSide()) <span class="kw">return</span> <span class="type">InteractionResult</span>.SUCCESS;
+
+    player.sendSystemMessage(<span class="type">Component</span>.literal(<span class="str">"Right clicked portable house!"</span>));
+    <span class="kw">return</span> <span class="type">InteractionResult</span>.SUCCESS;
+}</pre>
+
+      <div class="callout concept">
+        <div class="callout-label">Key Concept — Server vs Client</div>
+        <p>In Minecraft, the world runs on both the <strong>server</strong> (holds real game state) and the <strong>client</strong> (your screen, visual copy only). This method is called on <em>both</em> sides. The <code>if (level.isClientSide()) return</code> guard ensures your real logic only runs on the server, where it actually matters. Almost all block and item logic follows this pattern.</p>
+      </div>
+
+      <div class="callout test">
+        <div class="callout-label">Test</div>
+        <p>Right-click the placed block without holding an item. You should see the message appear in chat.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-5">
+    <div class="step-header" onclick="toggleStep('step-5')">
+      <div class="step-check" onclick="toggleDone(event,'step-5')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">5</div>
+      <div class="step-meta">
+        <div class="step-title">Define the capture region</div>
+        <div class="step-subtitle">Learn BlockPos math and how to describe a 3D area</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <div class="files">
+        <span class="file-chip mod">~ PortableHouseBlockEntity.java</span>
+        <span class="file-chip mod">~ PortableHouseBlock.java</span>
+      </div>
+      <p>Add two <code>BlockPos</code> fields to <code>PortableHouseBlockEntity</code>: <code>minCorner</code> and <code>maxCorner</code>. These define the bounding box of the house. Start with a hardcoded radius:</p>
+
+      <pre><span class="comment">// in PortableHouseBlock.useWithoutItem(), after the isClientSide guard:</span>
+<span class="type">PortableHouseBlockEntity</span> be =
+    (<span class="type">PortableHouseBlockEntity</span>) level.getBlockEntity(pos);
+<span class="kw">if</span> (be == <span class="kw">null</span>) <span class="kw">return</span> <span class="type">InteractionResult</span>.FAIL;
+
+be.minCorner = pos.offset(-10, -5, -10);
+be.maxCorner = pos.offset(10, 10, 10);
+be.setChanged(); <span class="comment">// marks data as dirty — tells Minecraft to save it</span></pre>
+
+      <p>Then in <code>saveAdditional</code> / <code>loadAdditional</code>, persist the two corners. Use <code>tag.putInt("minX", minCorner.getX())</code> (and Y, Z) to save, and <code>new BlockPos(tag.getInt("minX"), ...)</code> to load. Don't forget to call <code>super.saveAdditional()</code> and <code>super.loadAdditional()</code> too.</p>
+
+      <div class="callout concept">
+        <div class="callout-label">Key Concept — setChanged()</div>
+        <p>Calling <code>setChanged()</code> on a block entity tells Minecraft "this data is dirty and needs to be written to disk on the next save." If you forget it, your data will be lost when the chunk unloads. Call it every time you modify a field on a block entity.</p>
+      </div>
+
+      <div class="callout test">
+        <div class="callout-label">Test</div>
+        <p>Right-click the block. No crash = the region is being set and saved correctly. You can't see it yet, but the data is there.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-6">
+    <div class="step-header" onclick="toggleStep('step-6')">
+      <div class="step-check" onclick="toggleDone(event,'step-6')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">6</div>
+      <div class="step-meta">
+        <div class="step-title">Capture the structure with StructureTemplate</div>
+        <div class="step-subtitle">Use Minecraft's built-in system to snapshot the house</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <div class="files">
+        <span class="file-chip mod">~ PortableHouseBlock.java</span>
+        <span class="file-chip mod">~ PortableHouseBlockEntity.java</span>
+      </div>
+      <p>Add a <code>CompoundTag houseData</code> field to <code>PortableHouseBlockEntity</code>. Save/load it with <code>tag.put("houseData", houseData)</code> and <code>houseData = tag.getCompound("houseData")</code>.</p>
+
+      <p>Then in the right-click handler, after setting the corners, scan the world into a <code>StructureTemplate</code>:</p>
+
+      <pre><span class="type">StructureTemplate</span> template = <span class="kw">new</span> <span class="type">StructureTemplate</span>();
+<span class="type">BlockPos</span> size = be.maxCorner.subtract(be.minCorner);
+template.fillFromWorld(level, be.minCorner, size, <span class="kw">false</span>, Blocks.STRUCTURE_VOID);
+
+be.houseData = template.save(<span class="kw">new</span> <span class="type">CompoundTag</span>());
+be.setChanged();
+level.sendBlockUpdated(pos, state, state, 3); <span class="comment">// syncs to client</span>
+
+player.sendSystemMessage(<span class="type">Component</span>.literal(<span class="str">"House captured!"</span>));</pre>
+
+      <div class="callout concept">
+        <div class="callout-label">Key Concept — StructureTemplate</div>
+        <p><code>StructureTemplate</code> is the same system Minecraft uses for structure blocks and jigsaw structures. <code>fillFromWorld()</code> walks every block in the region and records its <code>BlockState</code> <em>and</em> its block entity NBT (chests with items, signs with text, etc.). <code>template.save()</code> converts it to a <code>CompoundTag</code> you can store anywhere — in your block entity, in an item, on disk.</p>
+      </div>
+
+      <div class="callout test">
+        <div class="callout-label">Test</div>
+        <p>Right-click the block. You should see "House captured!" in chat. Verify the data was saved by breaking and replacing the block — the capture process shouldn't crash.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-7">
+    <div class="step-header" onclick="toggleStep('step-7')">
+      <div class="step-check" onclick="toggleDone(event,'step-7')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">7</div>
+      <div class="step-meta">
+        <div class="step-title">Copy block entity data into the dropped item</div>
+        <div class="step-subtitle">Bridge the gap between the placed block and the carried item</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <div class="files">
+        <span class="file-chip mod">~ PortableHouseBlock.java</span>
+      </div>
+      <p>Override <code>getDrops()</code> in <code>PortableHouseBlock</code> to attach the block entity's NBT to the dropped item stack. Minecraft provides a helper that does this automatically:</p>
+
+      <pre><span class="kw">@Override</span>
+<span class="kw">public</span> <span class="type">List</span>&lt;<span class="type">ItemStack</span>&gt; getDrops(
+    <span class="type">BlockState</span> state, <span class="type">LootParams.Builder</span> builder
+) {
+    <span class="type">BlockEntity</span> be = builder.getOptionalParameter(<span class="type">LootContextParams</span>.BLOCK_ENTITY);
+    <span class="type">ItemStack</span> stack = <span class="kw">new</span> <span class="type">ItemStack</span>(<span class="kw">this</span>);
+    <span class="kw">if</span> (be != <span class="kw">null</span>) {
+        be.saveToItem(stack, builder.create(<span class="type">LootContextParamSets</span>.EMPTY).getLevel().registryAccess());
+    }
+    <span class="kw">return</span> List.of(stack);
+}</pre>
+
+      <div class="callout concept">
+        <div class="callout-label">Key Concept — saveToItem()</div>
+        <p><code>BlockEntity.saveToItem()</code> calls your <code>saveAdditional()</code> internally and stores everything under a special <code>BlockEntityTag</code> component on the item stack. This is exactly how vanilla handles chests keeping their inventory when broken — you don't need to manually copy individual fields.</p>
+      </div>
+
+      <div class="callout test">
+        <div class="callout-label">Test</div>
+        <p>Right-click to capture, then break the block. Hold the dropped item and run <code>/data get entity @s SelectedItem</code> in chat. You should see a large NBT blob containing <code>houseData</code> nested inside — that's your entire house structure sitting in the item.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-8">
+    <div class="step-header" onclick="toggleStep('step-8')">
+      <div class="step-check" onclick="toggleDone(event,'step-8')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">8</div>
+      <div class="step-meta">
+        <div class="step-title">Create a custom BlockItem subclass</div>
+        <div class="step-subtitle">Learn how to override placement behaviour</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <div class="files">
+        <span class="file-chip new">+ PortableHouseBlockItem.java</span>
+        <span class="file-chip mod">~ ModBlocks.java</span>
+      </div>
+      <p>Create <code>PortableHouseBlockItem.java</code> extending <code>BlockItem</code>. Override <code>place(BlockPlaceContext context)</code>. For now just call <code>super.place(context)</code> and return the result — this makes the item behave exactly as before.</p>
+
+      <p>In <code>ModBlocks.java</code>, replace <code>new BlockItem(block, ...)</code> with <code>new PortableHouseBlockItem(block, ...)</code>.</p>
+
+      <div class="callout test">
+        <div class="callout-label">Test</div>
+        <p>The item should still place the block normally. Confirm nothing broke before adding restoration logic in the next step.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-9">
+    <div class="step-header" onclick="toggleStep('step-9')">
+      <div class="step-check" onclick="toggleDone(event,'step-9')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">9</div>
+      <div class="step-meta">
+        <div class="step-title">Restore the structure on place</div>
+        <div class="step-subtitle">Read NBT from the item and reconstruct the house</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <div class="files">
+        <span class="file-chip mod">~ PortableHouseBlockItem.java</span>
+      </div>
+      <p>After <code>super.place(context)</code> succeeds, get the newly placed block's position from the context, then read the stored structure and replay it into the world:</p>
+
+      <pre><span class="type">InteractionResult</span> result = <span class="kw">super</span>.place(context);
+<span class="kw">if</span> (!result.consumesAction()) <span class="kw">return</span> result;
+
+<span class="type">Level</span> level = context.getLevel();
+<span class="kw">if</span> (level.isClientSide()) <span class="kw">return</span> result;
+
+<span class="type">BlockPos</span> placedPos = context.getClickedPos();
+<span class="type">PortableHouseBlockEntity</span> be =
+    (<span class="type">PortableHouseBlockEntity</span>) level.getBlockEntity(placedPos);
+<span class="kw">if</span> (be == <span class="kw">null</span> || be.houseData == <span class="kw">null</span>) <span class="kw">return</span> result;
+
+<span class="type">StructureTemplate</span> template = <span class="kw">new</span> <span class="type">StructureTemplate</span>();
+template.load(level.registryAccess(), be.houseData);
+
+<span class="comment">// minCorner was stored relative to the original placement —</span>
+<span class="comment">// recalculate it relative to the new placement position</span>
+<span class="type">BlockPos</span> offset = be.minCorner; <span class="comment">// you'll refine this in Step 10</span>
+template.placeInWorld(
+    level, offset, offset,
+    <span class="kw">new</span> <span class="type">StructurePlaceSettings</span>(),
+    level.getRandom(), 2
+);
+<span class="kw">return</span> result;</pre>
+
+      <div class="callout warning">
+        <div class="callout-label">Note — Relative Offsets</div>
+        <p>The min corner saved in Step 5 is an absolute world position. When the player places the item somewhere else, you need the corner <em>relative to the portable house block</em>, then add the new placement position. Update your block entity to store the offset as a relative <code>Vec3i</code> rather than an absolute position — e.g. <code>(-10, -5, -10)</code> — and reconstruct the absolute position at restore time using <code>placedPos.offset(storedOffset)</code>.</p>
+      </div>
+
+      <div class="callout test">
+        <div class="callout-label">Test</div>
+        <p>Right-click to capture the house, break the block, walk to an empty area, place the item. The house should rebuild around the new position.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-10">
+    <div class="step-header" onclick="toggleStep('step-10')">
+      <div class="step-check" onclick="toggleDone(event,'step-10')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">10</div>
+      <div class="step-meta">
+        <div class="step-title">Remove the original blocks on pickup</div>
+        <div class="step-subtitle">Make the house actually travel with the item</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <div class="files">
+        <span class="file-chip mod">~ PortableHouseBlock.java</span>
+      </div>
+      <p>Override <code>onRemove()</code> in <code>PortableHouseBlock</code>. This fires when the block leaves the world. Get the block entity, check that it has a captured structure, then clear every block in the saved region:</p>
+
+      <pre><span class="kw">@Override</span>
+<span class="kw">public void</span> onRemove(
+    <span class="type">BlockState</span> state, <span class="type">Level</span> level, <span class="type">BlockPos</span> pos,
+    <span class="type">BlockState</span> newState, <span class="kw">boolean</span> movedByPiston
+) {
+    <span class="kw">if</span> (!level.isClientSide() && !state.is(newState.getBlock())) {
+        <span class="type">PortableHouseBlockEntity</span> be =
+            (<span class="type">PortableHouseBlockEntity</span>) level.getBlockEntity(pos);
+        <span class="kw">if</span> (be != <span class="kw">null</span> && be.houseData != <span class="kw">null</span>) {
+            <span class="type">BlockPos</span> min = pos.offset(be.storedOffset);
+            <span class="type">BlockPos</span> max = min.offset(be.size); <span class="comment">// size you recorded in step 5</span>
+            <span class="type">BlockPos</span>.betweenClosed(min, max)
+                .forEach(p -> level.removeBlock(p, <span class="kw">false</span>));
+        }
+    }
+    <span class="kw">super</span>.onRemove(state, level, pos, newState, movedByPiston);
+}</pre>
+
+      <div class="callout warning">
+        <div class="callout-label">Important</div>
+        <p>Always call <code>super.onRemove()</code> <em>after</em> your logic. The super call detaches and destroys the block entity — if you call it first, <code>level.getBlockEntity(pos)</code> returns null and you lose the data.</p>
+      </div>
+
+      <div class="callout test">
+        <div class="callout-label">Test</div>
+        <p>Build a small room, place and right-click the block to capture it, then break it. The room should disappear. Walk elsewhere and place the item — the room should reappear. This is the full loop working end-to-end.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-11">
+    <div class="step-header" onclick="toggleStep('step-11')">
+      <div class="step-check" onclick="toggleDone(event,'step-11')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">11</div>
+      <div class="step-meta">
+        <div class="step-title">Polish and edge cases</div>
+        <div class="step-subtitle">Make it feel like a real feature</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <p>Once the full loop works, things to add:</p>
+      <ul class="method-list">
+        <li>Play a sound on capture and restore — <code>level.playSound(null, pos, SoundEvents.ENDERMAN_TELEPORT, SoundSource.BLOCKS, 1f, 1f)</code></li>
+        <li>Spawn particles on restore — <code>level.addParticle(...)</code> in a loop around the region</li>
+        <li>Make the capture radius configurable — shift+right-click to cycle through preset sizes, stored in the block entity</li>
+        <li>Guard against placing into occupied space — check if the target area has non-air blocks before restoring</li>
+        <li>Show the capture region visually — spawn temporary outline particles when right-clicked so the player can see what will be captured</li>
+        <li>Handle the portable house inside a portable house — already works for free since <code>StructureTemplate</code> saves block entity NBT recursively</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  function toggleStep(id) {
+    const el = document.getElementById(id);
+    el.classList.toggle('open');
+  }
+
+  function toggleDone(event, id) {
+    event.stopPropagation();
+    const el = document.getElementById(id);
+    el.classList.toggle('done');
+    if (!el.classList.contains('open')) el.classList.add('open');
+    updateProgress();
+    saveState();
+  }
+
+  function updateProgress() {
+    const total = document.querySelectorAll('.step').length;
+    const done  = document.querySelectorAll('.step.done').length;
+    const pct   = Math.round((done / total) * 100);
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progressLabel').textContent =
+      done + ' of ' + total + ' steps complete';
+  }
+
+  function saveState() {
+    const state = {};
+    document.querySelectorAll('.step').forEach(el => {
+      state[el.id] = {
+        done: el.classList.contains('done'),
+        open: el.classList.contains('open')
+      };
+    });
+    localStorage.setItem('portableHousePlan', JSON.stringify(state));
+  }
+
+  function loadState() {
+    const raw = localStorage.getItem('portableHousePlan');
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    Object.entries(state).forEach(([id, s]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (s.done) el.classList.add('done');
+      if (s.open) el.classList.add('open');
+    });
+    updateProgress();
+  }
+
+  loadState();
+</script>
+</body>
+</html>
