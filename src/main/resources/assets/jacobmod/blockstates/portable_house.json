@@ -1,5 +1,5 @@
 {
   "variants": {
-    "": { "model": "jacobmod:block/PortableHouseModel" }
+    "": { "model": "jacobmod:block/portable_house" }
   }
 }

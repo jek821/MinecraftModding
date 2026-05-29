@@ -17,7 +17,7 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
 import java.util.function.Function;
 
 public class ModBlocks {
-    public static final Block PORTABLEHOUSE = registerBlock("Portable House", PortableHouseBlock::new);
+    public static final Block PORTABLEHOUSE = registerBlock("portable_house", PortableHouseBlock::new, BlockBehaviour.Properties.of(), true);
 
     private static Block registerBlock(String name, Function<BlockBehaviour.Properties, Block> blockFactory, BlockBehaviour.Properties settings, boolean shouldRegisterItem) {
         // Create a registry key for the block

@@ -1,9 +1,8 @@
 {
-	"format_version": "1.21.11",
 	"credit": "Made with Blockbench",
 	"textures": {
-		"0": "block/PortableHouseTexture",
-		"particle": "block/PortableHouseTexture"
+		"0": "block/portable_house",
+		"particle": "block/portable_house"
 	},
 	"elements": [
 		{
