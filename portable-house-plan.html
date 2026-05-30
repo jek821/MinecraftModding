@@ -249,7 +249,7 @@
     pre .str     { color: #86efac; }
     pre .type    { color: #67e8f9; }
 
-    /* Method list */
+    /* Method / bullet list */
     .method-list {
       list-style: none;
       display: flex;
@@ -277,6 +277,21 @@
       color: #52525b;
       margin-bottom: 0.4rem;
     }
+
+    /* Sub-step dividers inside step 6 */
+    .substep {
+      border-top: 1px solid #27272a;
+      padding-top: 0.9rem;
+      margin-top: 0.9rem;
+    }
+    .substep-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #3f3f46;
+      margin-bottom: 0.5rem;
+    }
   </style>
 </head>
 <body>
@@ -286,23 +301,27 @@
     <h1>Portable House — Implementation Plan</h1>
     <p>Work through each step in order. Test after every step before moving on.</p>
     <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
-    <div class="progress-label" id="progressLabel">0 of 11 steps complete</div>
+    <div class="progress-label" id="progressLabel">0 of 12 steps complete</div>
   </header>
 
   <!-- File map -->
   <div class="filemap">
     <h2>Files you'll touch</h2>
-    <pre><span class="new">+ block/PortableHouseBlockEntity.java</span>   stores the house data
-<span class="new">+ block/PortableHouseBlockItem.java</span>     controls place behaviour
-<span class="new">+ ModBlockEntities.java</span>                 registers the block entity type
+    <pre><span class="new">+ block/PortableHouseBlockEntity.java</span>             stores house + terrain data
+<span class="new">+ block/PortableHouseBlockItem.java</span>               controls place behaviour
+<span class="new">+ block/PortableHouseScreen.java</span>                  client-side selection GUI
+<span class="new">+ network/OpenPortableHouseGuiPayload.java</span>         S2C packet: open GUI on client
+<span class="new">+ network/UpdatePortableHouseRegionPayload.java</span>    C2S packet: submit settings
+<span class="new">+ ModBlockEntities.java</span>                           registers the block entity type
+<span class="new">+ JacobModClient.java</span>                             client entrypoint
 
-<span class="mod">~ block/PortableHouseBlock.java</span>         right-click + break behaviour
-<span class="mod">~ ModBlocks.java</span>                        swap in your new BlockItem
-<span class="mod">~ JacobMod.java</span>                         call registerModBlockEntities()</pre>
+<span class="mod">~ block/PortableHouseBlock.java</span>                   right-click + break behaviour
+<span class="mod">~ ModBlocks.java</span>                                  swap in PortableHouseBlockItem
+<span class="mod">~ JacobMod.java</span>                                   register packets + block entities
+<span class="mod">~ fabric.mod.json</span>                                 add client entrypoint</pre>
   </div>
 
-  <!-- Steps -->
-
+  <!-- STEP 1 -->
   <div class="step" id="step-1">
     <div class="step-header" onclick="toggleStep('step-1')">
       <div class="step-check" onclick="toggleDone(event,'step-1')">
@@ -321,22 +340,33 @@
       <div class="files">
         <span class="file-chip new">+ PortableHouseBlockEntity.java</span>
       </div>
-      <p>Create <code>PortableHouseBlockEntity.java</code> in the <code>block/</code> package. It needs to extend <code>BlockEntity</code> and override two methods for saving and loading data. Both methods can have empty bodies for now — the goal is just a class that compiles.</p>
+      <p>Create <code>PortableHouseBlockEntity.java</code> in the <code>block/</code> package extending <code>BlockEntity</code>. Both save/load methods can have empty bodies for now.</p>
 
-      <h3>Methods to implement</h3>
-      <ul class="method-list">
-        <li>Constructor <code>(BlockEntityType&lt;?&gt; type, BlockPos pos, BlockState state)</code> — passes all three up to <code>super(...)</code>. You'll fill in the type argument in Step 3.</li>
-        <li><code>saveAdditional(CompoundTag tag, HolderLookup.Provider registries)</code> — called automatically when Minecraft saves this block to disk. Leave empty for now.</li>
-        <li><code>loadAdditional(CompoundTag tag, HolderLookup.Provider registries)</code> — called when Minecraft reads it back. Leave empty for now.</li>
-      </ul>
+      <pre><span class="kw">public class</span> <span class="type">PortableHouseBlockEntity</span> <span class="kw">extends</span> <span class="type">BlockEntity</span> {
+
+    <span class="kw">public</span> <span class="type">PortableHouseBlockEntity</span>(<span class="type">BlockEntityType</span>&lt;?&gt; type, <span class="type">BlockPos</span> pos, <span class="type">BlockState</span> state) {
+        <span class="kw">super</span>(type, pos, state);
+    }
+
+    <span class="kw">@Override</span>
+    <span class="kw">protected void</span> saveAdditional(<span class="type">CompoundTag</span> tag, <span class="type">HolderLookup.Provider</span> registries) {
+        <span class="kw">super</span>.saveAdditional(tag, registries);
+    }
+
+    <span class="kw">@Override</span>
+    <span class="kw">public void</span> loadAdditional(<span class="type">CompoundTag</span> tag, <span class="type">HolderLookup.Provider</span> registries) {
+        <span class="kw">super</span>.loadAdditional(tag, registries);
+    }
+}</pre>
 
       <div class="callout concept">
-        <div class="callout-label">Key Concept — CompoundTag</div>
-        <p>Think of <code>CompoundTag</code> as a <code>HashMap&lt;String, Object&gt;</code> that Minecraft knows how to write to disk. You put things in with <code>tag.putInt("key", value)</code>, <code>tag.putString("key", value)</code>, etc., and read them back with <code>tag.getInt("key")</code>. This is how all block entity data is persisted — chests use it for inventory, signs use it for text, and you'll use it for house structure data.</p>
+        <div class="callout-label">Key Concept — NBT &amp; CompoundTag</div>
+        <p>NBT (Named Binary Tag) is Minecraft's native format for saving data to disk, to items, and over the network. In Java it's the <code>CompoundTag</code> class — a typed HashMap. You write <code>tag.putInt("x", 10)</code> and read back <code>tag.getInt("x")</code>. Every piece of persistent data in the game — chunk blocks, chest inventories, sign text — is stored as NBT. When you override <code>saveAdditional()</code> and <code>loadAdditional()</code>, you're reading and writing NBT.</p>
       </div>
     </div>
   </div>
 
+  <!-- STEP 2 -->
   <div class="step" id="step-2">
     <div class="step-header" onclick="toggleStep('step-2')">
       <div class="step-check" onclick="toggleDone(event,'step-2')">
@@ -356,26 +386,33 @@
         <span class="file-chip new">+ ModBlockEntities.java</span>
         <span class="file-chip mod">~ JacobMod.java</span>
       </div>
-      <p>Create <code>ModBlockEntities.java</code> modelled after <code>ModBlocks.java</code>. Register a <code>BlockEntityType</code> that links your new class to your block:</p>
+      <p>Create <code>ModBlockEntities.java</code> modelled after <code>ModBlocks.java</code>:</p>
 
-      <pre><span class="kw">public static final</span> <span class="type">BlockEntityType</span>&lt;<span class="type">PortableHouseBlockEntity</span>&gt; PORTABLE_HOUSE =
-    Registry.register(
-        BuiltInRegistries.BLOCK_ENTITY_TYPE,
-        Identifier.fromNamespaceAndPath(<span class="str">"jacobmod"</span>, <span class="str">"portable_house"</span>),
-        BlockEntityType.Builder
-            .of(<span class="type">PortableHouseBlockEntity</span>::<span class="kw">new</span>, ModBlocks.PORTABLEHOUSE)
-            .build(<span class="kw">null</span>)
-    );</pre>
+      <pre><span class="kw">public class</span> <span class="type">ModBlockEntities</span> {
+    <span class="kw">public static final</span> <span class="type">BlockEntityType</span>&lt;<span class="type">PortableHouseBlockEntity</span>&gt; PORTABLE_HOUSE =
+        Registry.register(
+            BuiltInRegistries.BLOCK_ENTITY_TYPE,
+            Identifier.fromNamespaceAndPath(<span class="str">"jacobmod"</span>, <span class="str">"portable_house"</span>),
+            BlockEntityType.Builder
+                .of(<span class="type">PortableHouseBlockEntity</span>::<span class="kw">new</span>, ModBlocks.PORTABLEHOUSE)
+                .build(<span class="kw">null</span>)
+        );
 
-      <p>Add a <code>registerModBlockEntities()</code> method (empty body is fine — calling it forces the class to load and run the static field above). Then call it from <code>JacobMod.onInitialize()</code>.</p>
+    <span class="kw">public static void</span> registerModBlockEntities() {
+        JacobMod.LOGGER.info(<span class="str">"Registering block entities for "</span> + JacobMod.MOD_ID);
+    }
+}</pre>
+
+      <p>In <code>JacobMod.onInitialize()</code>, add: <code>ModBlockEntities.registerModBlockEntities();</code></p>
 
       <div class="callout concept">
         <div class="callout-label">Key Concept — BlockEntityType</div>
-        <p>The <code>BlockEntityType</code> is a registry entry that acts as a factory and validator. It says: "positions that hold a <code>portable_house</code> block are allowed to have a <code>PortableHouseBlockEntity</code> attached, and here's how to construct one." Minecraft uses it internally to create and look up block entities when loading chunks.</p>
+        <p>Acts as a factory and validator. It says: "positions that hold a <code>portable_house</code> block are allowed to have a <code>PortableHouseBlockEntity</code> attached, and here's how to construct one." Minecraft uses it when loading chunks.</p>
       </div>
     </div>
   </div>
 
+  <!-- STEP 3 -->
   <div class="step" id="step-3">
     <div class="step-header" onclick="toggleStep('step-3')">
       <div class="step-check" onclick="toggleDone(event,'step-3')">
@@ -395,19 +432,20 @@
         <span class="file-chip mod">~ PortableHouseBlock.java</span>
         <span class="file-chip mod">~ PortableHouseBlockEntity.java</span>
       </div>
-      <p>In <code>PortableHouseBlock.java</code>, update <code>newBlockEntity()</code> to return a real instance:</p>
+      <p>In <code>PortableHouseBlock.java</code>, update <code>newBlockEntity()</code>:</p>
       <pre><span class="kw">return new</span> <span class="type">PortableHouseBlockEntity</span>(pos, state);</pre>
 
-      <p>Then go back to your <code>PortableHouseBlockEntity</code> constructor and pass the registered type as the first argument to <code>super</code>:</p>
+      <p>In <code>PortableHouseBlockEntity</code>, pass the registered type to <code>super</code>:</p>
       <pre><span class="kw">super</span>(ModBlockEntities.PORTABLE_HOUSE, pos, state);</pre>
 
       <div class="callout test">
         <div class="callout-label">Test</div>
-        <p>Launch the game and place the block. If it doesn't crash, the block entity is working. Press F3 and look at the block — it should show the block entity type in the debug overlay on the right side of the screen.</p>
+        <p>Launch the game and place the block. If it doesn't crash, the block entity is working. Press F3 and look at the block — the debug overlay on the right should show the block entity type.</p>
       </div>
     </div>
   </div>
 
+  <!-- STEP 4 -->
   <div class="step" id="step-4">
     <div class="step-header" onclick="toggleStep('step-4')">
       <div class="step-check" onclick="toggleDone(event,'step-4')">
@@ -426,7 +464,7 @@
       <div class="files">
         <span class="file-chip mod">~ PortableHouseBlock.java</span>
       </div>
-      <p>Override <code>useWithoutItem()</code> in <code>PortableHouseBlock.java</code>. For now just send a chat message to confirm it works:</p>
+      <p>Override <code>useWithoutItem()</code>. For now just send a chat message to confirm it works — this method will be replaced in Step 6:</p>
 
       <pre><span class="kw">@Override</span>
 <span class="kw">protected</span> <span class="type">InteractionResult</span> useWithoutItem(
@@ -434,14 +472,13 @@
     <span class="type">Player</span> player, <span class="type">BlockHitResult</span> hit
 ) {
     <span class="kw">if</span> (level.isClientSide()) <span class="kw">return</span> <span class="type">InteractionResult</span>.SUCCESS;
-
     player.sendSystemMessage(<span class="type">Component</span>.literal(<span class="str">"Right clicked portable house!"</span>));
     <span class="kw">return</span> <span class="type">InteractionResult</span>.SUCCESS;
 }</pre>
 
       <div class="callout concept">
         <div class="callout-label">Key Concept — Server vs Client</div>
-        <p>In Minecraft, the world runs on both the <strong>server</strong> (holds real game state) and the <strong>client</strong> (your screen, visual copy only). This method is called on <em>both</em> sides. The <code>if (level.isClientSide()) return</code> guard ensures your real logic only runs on the server, where it actually matters. Almost all block and item logic follows this pattern.</p>
+        <p>The world runs on both the <strong>server</strong> (real game state) and the <strong>client</strong> (your screen, visual copy only). <code>useWithoutItem()</code> is called on both sides. The <code>isClientSide()</code> guard ensures real logic only runs on the server. Almost all block and item logic follows this pattern.</p>
       </div>
 
       <div class="callout test">
@@ -451,6 +488,7 @@
     </div>
   </div>
 
+  <!-- STEP 5 -->
   <div class="step" id="step-5">
     <div class="step-header" onclick="toggleStep('step-5')">
       <div class="step-check" onclick="toggleDone(event,'step-5')">
@@ -460,41 +498,60 @@
       </div>
       <div class="step-number">5</div>
       <div class="step-meta">
-        <div class="step-title">Define the capture region</div>
-        <div class="step-subtitle">Learn BlockPos math and how to describe a 3D area</div>
+        <div class="step-title">Add region and filter fields to the BlockEntity</div>
+        <div class="step-subtitle">Define all the data the block entity needs to carry</div>
       </div>
       <div class="step-toggle">▼</div>
     </div>
     <div class="step-body">
       <div class="files">
         <span class="file-chip mod">~ PortableHouseBlockEntity.java</span>
-        <span class="file-chip mod">~ PortableHouseBlock.java</span>
       </div>
-      <p>Add two <code>BlockPos</code> fields to <code>PortableHouseBlockEntity</code>: <code>minCorner</code> and <code>maxCorner</code>. These define the bounding box of the house. Start with a hardcoded radius:</p>
+      <p>Add these public fields to <code>PortableHouseBlockEntity</code>:</p>
 
-      <pre><span class="comment">// in PortableHouseBlock.useWithoutItem(), after the isClientSide guard:</span>
-<span class="type">PortableHouseBlockEntity</span> be =
-    (<span class="type">PortableHouseBlockEntity</span>) level.getBlockEntity(pos);
-<span class="kw">if</span> (be == <span class="kw">null</span>) <span class="kw">return</span> <span class="type">InteractionResult</span>.FAIL;
+      <pre><span class="kw">public</span> <span class="type">Vec3i</span>        relativeMin  = <span class="kw">new</span> <span class="type">Vec3i</span>(-5, -3, -5);  <span class="comment">// offset from block to min corner</span>
+<span class="kw">public</span> <span class="type">Vec3i</span>        size         = <span class="kw">new</span> <span class="type">Vec3i</span>(10, 8, 10);   <span class="comment">// dimensions of capture region</span>
+<span class="kw">public</span> <span class="type">List</span>&lt;<span class="type">String</span>&gt; blockFilter  = <span class="kw">new</span> <span class="type">ArrayList</span>&lt;&gt;();     <span class="comment">// block IDs to skip on restore</span>
+<span class="kw">public</span> <span class="type">CompoundTag</span> houseData    = <span class="kw">null</span>;                     <span class="comment">// captured house structure</span>
+<span class="kw">public</span> <span class="type">CompoundTag</span> terrainData  = <span class="kw">null</span>;                     <span class="comment">// terrain saved before placement</span></pre>
 
-be.minCorner = pos.offset(-10, -5, -10);
-be.maxCorner = pos.offset(10, 10, 10);
-be.setChanged(); <span class="comment">// marks data as dirty — tells Minecraft to save it</span></pre>
+      <p>Save and load all of them in <code>saveAdditional</code> / <code>loadAdditional</code>:</p>
 
-      <p>Then in <code>saveAdditional</code> / <code>loadAdditional</code>, persist the two corners. Use <code>tag.putInt("minX", minCorner.getX())</code> (and Y, Z) to save, and <code>new BlockPos(tag.getInt("minX"), ...)</code> to load. Don't forget to call <code>super.saveAdditional()</code> and <code>super.loadAdditional()</code> too.</p>
+      <pre><span class="comment">// saveAdditional — after super.saveAdditional(tag, registries):</span>
+tag.putInt(<span class="str">"minX"</span>, relativeMin.getX());
+tag.putInt(<span class="str">"minY"</span>, relativeMin.getY());
+tag.putInt(<span class="str">"minZ"</span>, relativeMin.getZ());
+tag.putInt(<span class="str">"sizeX"</span>, size.getX());
+tag.putInt(<span class="str">"sizeY"</span>, size.getY());
+tag.putInt(<span class="str">"sizeZ"</span>, size.getZ());
+<span class="type">ListTag</span> filterTag = <span class="kw">new</span> <span class="type">ListTag</span>();
+blockFilter.forEach(id -> filterTag.add(<span class="type">StringTag</span>.valueOf(id)));
+tag.put(<span class="str">"blockFilter"</span>, filterTag);
+<span class="kw">if</span> (houseData   != <span class="kw">null</span>) tag.put(<span class="str">"houseData"</span>,   houseData);
+<span class="kw">if</span> (terrainData != <span class="kw">null</span>) tag.put(<span class="str">"terrainData"</span>, terrainData);
+
+<span class="comment">// loadAdditional — after super.loadAdditional(tag, registries):</span>
+relativeMin = <span class="kw">new</span> <span class="type">Vec3i</span>(tag.getInt(<span class="str">"minX"</span>), tag.getInt(<span class="str">"minY"</span>), tag.getInt(<span class="str">"minZ"</span>));
+size        = <span class="kw">new</span> <span class="type">Vec3i</span>(tag.getInt(<span class="str">"sizeX"</span>), tag.getInt(<span class="str">"sizeY"</span>), tag.getInt(<span class="str">"sizeZ"</span>));
+blockFilter = <span class="kw">new</span> <span class="type">ArrayList</span>&lt;&gt;();
+tag.getList(<span class="str">"blockFilter"</span>, Tag.TAG_STRING)
+   .forEach(t -> blockFilter.add(t.getAsString()));
+houseData   = tag.contains(<span class="str">"houseData"</span>)   ? tag.getCompound(<span class="str">"houseData"</span>)   : <span class="kw">null</span>;
+terrainData = tag.contains(<span class="str">"terrainData"</span>) ? tag.getCompound(<span class="str">"terrainData"</span>) : <span class="kw">null</span>;</pre>
 
       <div class="callout concept">
-        <div class="callout-label">Key Concept — setChanged()</div>
-        <p>Calling <code>setChanged()</code> on a block entity tells Minecraft "this data is dirty and needs to be written to disk on the next save." If you forget it, your data will be lost when the chunk unloads. Call it every time you modify a field on a block entity.</p>
+        <div class="callout-label">Key Concept — Relative vs Absolute positions</div>
+        <p>Store the region as an offset <em>relative to the portable house block</em>, not as absolute world coordinates. When the player places the item somewhere new, compute: <code>absoluteMin = newPlacedPos.offset(relativeMin)</code>. If you stored absolute coordinates, placing the house elsewhere would rebuild it at the original world position instead of the new one.</p>
       </div>
 
       <div class="callout test">
         <div class="callout-label">Test</div>
-        <p>Right-click the block. No crash = the region is being set and saved correctly. You can't see it yet, but the data is there.</p>
+        <p>No visible change yet. Should still compile and place without crashing.</p>
       </div>
     </div>
   </div>
 
+  <!-- STEP 6 -->
   <div class="step" id="step-6">
     <div class="step-header" onclick="toggleStep('step-6')">
       <div class="step-check" onclick="toggleDone(event,'step-6')">
@@ -504,42 +561,180 @@ be.setChanged(); <span class="comment">// marks data as dirty — tells Minecraf
       </div>
       <div class="step-number">6</div>
       <div class="step-meta">
-        <div class="step-title">Capture the structure with StructureTemplate</div>
-        <div class="step-subtitle">Use Minecraft's built-in system to snapshot the house</div>
+        <div class="step-title">Build the selection GUI</div>
+        <div class="step-subtitle">Open an in-game screen so the player can set corners and filter blocks</div>
       </div>
       <div class="step-toggle">▼</div>
     </div>
     <div class="step-body">
       <div class="files">
+        <span class="file-chip new">+ network/OpenPortableHouseGuiPayload.java</span>
+        <span class="file-chip new">+ network/UpdatePortableHouseRegionPayload.java</span>
+        <span class="file-chip new">+ block/PortableHouseScreen.java</span>
+        <span class="file-chip new">+ JacobModClient.java</span>
+        <span class="file-chip mod">~ JacobMod.java</span>
         <span class="file-chip mod">~ PortableHouseBlock.java</span>
-        <span class="file-chip mod">~ PortableHouseBlockEntity.java</span>
+        <span class="file-chip mod">~ fabric.mod.json</span>
       </div>
-      <p>Add a <code>CompoundTag houseData</code> field to <code>PortableHouseBlockEntity</code>. Save/load it with <code>tag.put("houseData", houseData)</code> and <code>houseData = tag.getCompound("houseData")</code>.</p>
+      <p>This step has multiple parts. Work through them in order.</p>
 
-      <p>Then in the right-click handler, after setting the corners, scan the world into a <code>StructureTemplate</code>:</p>
+      <div class="substep">
+        <div class="substep-label">6a — S2C packet: server tells client to open the GUI</div>
+        <p>Create <code>network/OpenPortableHouseGuiPayload.java</code>. This is the packet the server sends to a specific player when they right-click the block.</p>
+        <pre><span class="kw">public record</span> <span class="type">OpenPortableHouseGuiPayload</span>(
+    <span class="type">BlockPos</span> pos, <span class="type">Vec3i</span> relativeMin, <span class="type">Vec3i</span> size, <span class="type">List</span>&lt;<span class="type">String</span>&gt; blockFilter
+) <span class="kw">implements</span> <span class="type">CustomPacketPayload</span> {
 
-      <pre><span class="type">StructureTemplate</span> template = <span class="kw">new</span> <span class="type">StructureTemplate</span>();
-<span class="type">BlockPos</span> size = be.maxCorner.subtract(be.minCorner);
-template.fillFromWorld(level, be.minCorner, size, <span class="kw">false</span>, Blocks.STRUCTURE_VOID);
+    <span class="kw">public static final</span> <span class="type">Type</span>&lt;<span class="type">OpenPortableHouseGuiPayload</span>&gt; TYPE =
+        <span class="kw">new</span> <span class="type">Type</span>&lt;&gt;(<span class="type">Identifier</span>.of(<span class="str">"jacobmod"</span>, <span class="str">"open_portable_house_gui"</span>));
 
-be.houseData = template.save(<span class="kw">new</span> <span class="type">CompoundTag</span>());
-be.setChanged();
-level.sendBlockUpdated(pos, state, state, 3); <span class="comment">// syncs to client</span>
+    <span class="kw">public static final</span> <span class="type">StreamCodec</span>&lt;<span class="type">FriendlyByteBuf</span>, <span class="type">OpenPortableHouseGuiPayload</span>&gt; CODEC =
+        <span class="type">StreamCodec</span>.composite(
+            <span class="type">BlockPos</span>.STREAM_CODEC,                            <span class="type">OpenPortableHouseGuiPayload</span>::pos,
+            <span class="type">ByteBufCodecs</span>.fromCodec(<span class="type">Vec3i</span>.CODEC),             <span class="type">OpenPortableHouseGuiPayload</span>::relativeMin,
+            <span class="type">ByteBufCodecs</span>.fromCodec(<span class="type">Vec3i</span>.CODEC),             <span class="type">OpenPortableHouseGuiPayload</span>::size,
+            <span class="type">ByteBufCodecs</span>.fromCodec(<span class="type">Codec</span>.list(<span class="type">Codec</span>.STRING)), <span class="type">OpenPortableHouseGuiPayload</span>::blockFilter,
+            <span class="type">OpenPortableHouseGuiPayload</span>::<span class="kw">new</span>
+        );
 
-player.sendSystemMessage(<span class="type">Component</span>.literal(<span class="str">"House captured!"</span>));</pre>
+    <span class="kw">@Override public</span> <span class="type">Type</span>&lt;? <span class="kw">extends</span> <span class="type">CustomPacketPayload</span>&gt; type() { <span class="kw">return</span> TYPE; }
+}</pre>
+      </div>
 
-      <div class="callout concept">
-        <div class="callout-label">Key Concept — StructureTemplate</div>
-        <p><code>StructureTemplate</code> is the same system Minecraft uses for structure blocks and jigsaw structures. <code>fillFromWorld()</code> walks every block in the region and records its <code>BlockState</code> <em>and</em> its block entity NBT (chests with items, signs with text, etc.). <code>template.save()</code> converts it to a <code>CompoundTag</code> you can store anywhere — in your block entity, in an item, on disk.</p>
+      <div class="substep">
+        <div class="substep-label">6b — C2S packet: client sends the settings back to the server</div>
+        <p>Create <code>network/UpdatePortableHouseRegionPayload.java</code> with the same four fields (<code>pos</code>, <code>relativeMin</code>, <code>size</code>, <code>blockFilter</code>) and the same codec pattern. Just change the identifier to <code>"update_portable_house_region"</code>.</p>
+      </div>
+
+      <div class="substep">
+        <div class="substep-label">6c — Register both packets in JacobMod.onInitialize()</div>
+        <pre><span class="comment">// Register types (must run on both sides)</span>
+<span class="type">PayloadTypeRegistry</span>.playS2C().register(
+    <span class="type">OpenPortableHouseGuiPayload</span>.TYPE, <span class="type">OpenPortableHouseGuiPayload</span>.CODEC);
+<span class="type">PayloadTypeRegistry</span>.playC2S().register(
+    <span class="type">UpdatePortableHouseRegionPayload</span>.TYPE, <span class="type">UpdatePortableHouseRegionPayload</span>.CODEC);
+
+<span class="comment">// Handle the incoming C2S packet on the server</span>
+<span class="type">ServerPlayNetworking</span>.registerGlobalReceiver(
+    <span class="type">UpdatePortableHouseRegionPayload</span>.TYPE, (payload, context) -> {
+        context.server().execute(() -> {
+            <span class="type">ServerLevel</span> level = context.player().serverLevel();
+            <span class="kw">if</span> (!(level.getBlockEntity(payload.pos())
+                    <span class="kw">instanceof</span> <span class="type">PortableHouseBlockEntity</span> be)) <span class="kw">return</span>;
+            be.relativeMin = payload.relativeMin();
+            be.size        = payload.size();
+            be.blockFilter = <span class="kw">new</span> <span class="type">ArrayList</span>&lt;&gt;(payload.blockFilter());
+            be.setChanged();
+            <span class="type">PortableHouseBlock</span>.captureHouse(level, payload.pos(), be); <span class="comment">// Step 7</span>
+        });
+    });</pre>
+      </div>
+
+      <div class="substep">
+        <div class="substep-label">6d — Create JacobModClient.java (client entrypoint)</div>
+        <pre><span class="kw">public class</span> <span class="type">JacobModClient</span> <span class="kw">implements</span> <span class="type">ClientModInitializer</span> {
+    <span class="kw">@Override</span>
+    <span class="kw">public void</span> onInitializeClient() {
+        <span class="type">ClientPlayNetworking</span>.registerGlobalReceiver(
+            <span class="type">OpenPortableHouseGuiPayload</span>.TYPE, (payload, context) -> {
+                context.client().execute(() ->
+                    context.client().setScreen(<span class="kw">new</span> <span class="type">PortableHouseScreen</span>(
+                        payload.pos(), payload.relativeMin(),
+                        payload.size(), payload.blockFilter()
+                    ))
+                );
+            });
+    }
+}</pre>
+        <p>In <code>fabric.mod.json</code>, add the client entrypoint under <code>"entrypoints"</code>:</p>
+        <pre><span class="str">"client"</span>: [<span class="str">"com.jemanuel.jacobmod.JacobModClient"</span>]</pre>
+      </div>
+
+      <div class="substep">
+        <div class="substep-label">6e — Create block/PortableHouseScreen.java</div>
+        <pre><span class="kw">public class</span> <span class="type">PortableHouseScreen</span> <span class="kw">extends</span> <span class="type">Screen</span> {
+    <span class="kw">private final</span> <span class="type">BlockPos</span> blockPos;
+    <span class="kw">private final</span> <span class="type">Vec3i</span> initialMin;
+    <span class="kw">private final</span> <span class="type">Vec3i</span> initialSize;
+    <span class="kw">private final</span> <span class="type">List</span>&lt;<span class="type">String</span>&gt; initialFilter;
+    <span class="kw">private</span> <span class="type">EditBox</span> minXBox, minYBox, minZBox, sizeXBox, sizeYBox, sizeZBox, filterBox;
+
+    <span class="kw">public</span> <span class="type">PortableHouseScreen</span>(<span class="type">BlockPos</span> pos, <span class="type">Vec3i</span> relMin,
+                               <span class="type">Vec3i</span> sz, <span class="type">List</span>&lt;<span class="type">String</span>&gt; filter) {
+        <span class="kw">super</span>(<span class="type">Component</span>.literal(<span class="str">"Select Capture Region"</span>));
+        <span class="kw">this</span>.blockPos = pos; <span class="kw">this</span>.initialMin = relMin;
+        <span class="kw">this</span>.initialSize = sz; <span class="kw">this</span>.initialFilter = filter;
+    }
+
+    <span class="kw">@Override</span>
+    <span class="kw">protected void</span> init() {
+        <span class="kw">int</span> cx = width / 2, cy = height / 2;
+        minXBox  = addField(cx - 130, cy - 60, initialMin.getX());
+        minYBox  = addField(cx -  60, cy - 60, initialMin.getY());
+        minZBox  = addField(cx +  10, cy - 60, initialMin.getZ());
+        sizeXBox = addField(cx - 130, cy - 30, initialSize.getX());
+        sizeYBox = addField(cx -  60, cy - 30, initialSize.getY());
+        sizeZBox = addField(cx +  10, cy - 30, initialSize.getZ());
+
+        filterBox = <span class="kw">new</span> <span class="type">EditBox</span>(font, cx - 100, cy + 5, 200, 20,
+            <span class="type">Component</span>.literal(<span class="str">"Filter (comma-separated block IDs)"</span>));
+        filterBox.setValue(<span class="type">String</span>.join(<span class="str">","</span>, initialFilter));
+        addRenderableWidget(filterBox);
+
+        addRenderableWidget(<span class="type">Button</span>.builder(<span class="type">Component</span>.literal(<span class="str">"Capture"</span>), btn -> {
+            sendCapture(); onClose();
+        }).pos(cx - 50, cy + 35).size(100, 20).build());
+    }
+
+    <span class="kw">private</span> <span class="type">EditBox</span> addField(<span class="kw">int</span> x, <span class="kw">int</span> y, <span class="kw">int</span> initialValue) {
+        <span class="type">EditBox</span> box = <span class="kw">new</span> <span class="type">EditBox</span>(font, x, y, 60, 20, <span class="type">Component</span>.empty());
+        box.setValue(<span class="type">String</span>.valueOf(initialValue));
+        <span class="kw">return</span> addRenderableWidget(box);
+    }
+
+    <span class="kw">private void</span> sendCapture() {
+        <span class="type">Vec3i</span> newMin  = <span class="kw">new</span> <span class="type">Vec3i</span>(parse(minXBox),  parse(minYBox),  parse(minZBox));
+        <span class="type">Vec3i</span> newSize = <span class="kw">new</span> <span class="type">Vec3i</span>(parse(sizeXBox), parse(sizeYBox), parse(sizeZBox));
+        <span class="type">List</span>&lt;<span class="type">String</span>&gt; filter = <span class="type">Arrays</span>.stream(filterBox.getValue().split(<span class="str">","</span>))
+            .map(<span class="type">String</span>::trim).filter(s -> !s.isEmpty()).toList();
+        <span class="type">ClientPlayNetworking</span>.send(
+            <span class="kw">new</span> <span class="type">UpdatePortableHouseRegionPayload</span>(blockPos, newMin, newSize, filter));
+    }
+
+    <span class="kw">private int</span> parse(<span class="type">EditBox</span> box) {
+        <span class="kw">try</span> { <span class="kw">return</span> <span class="type">Integer</span>.parseInt(box.getValue().trim()); }
+        <span class="kw">catch</span> (<span class="type">NumberFormatException</span> e) { <span class="kw">return</span> 0; }
+    }
+
+    <span class="kw">@Override</span>
+    <span class="kw">public void</span> render(<span class="type">GuiGraphics</span> g, <span class="kw">int</span> mx, <span class="kw">int</span> my, <span class="kw">float</span> delta) {
+        renderBackground(g, mx, my, delta);
+        g.drawCenteredString(font, title, width/2, height/2 - 80, 0xFFFFFF);
+        g.drawString(font, <span class="str">"Min X  Min Y  Min Z"</span>,  width/2 - 130, height/2 - 72, 0x888888);
+        g.drawString(font, <span class="str">"Size X  Size Y  Size Z"</span>, width/2 - 130, height/2 - 42, 0x888888);
+        <span class="kw">super</span>.render(g, mx, my, delta);
+    }
+
+    <span class="kw">@Override public boolean</span> isPauseScreen() { <span class="kw">return false</span>; }
+}</pre>
+
+        <p>Finally, update <code>useWithoutItem()</code> in <code>PortableHouseBlock</code> to send the S2C packet instead of the test chat message:</p>
+        <pre><span class="kw">if</span> (level.isClientSide()) <span class="kw">return</span> <span class="type">InteractionResult</span>.SUCCESS;
+<span class="kw">if</span> (!(level.getBlockEntity(pos) <span class="kw">instanceof</span> <span class="type">PortableHouseBlockEntity</span> be))
+    <span class="kw">return</span> <span class="type">InteractionResult</span>.FAIL;
+<span class="type">ServerPlayNetworking</span>.send((<span class="type">ServerPlayer</span>) player,
+    <span class="kw">new</span> <span class="type">OpenPortableHouseGuiPayload</span>(pos, be.relativeMin, be.size, be.blockFilter));
+<span class="kw">return</span> <span class="type">InteractionResult</span>.SUCCESS;</pre>
       </div>
 
       <div class="callout test">
         <div class="callout-label">Test</div>
-        <p>Right-click the block. You should see "House captured!" in chat. Verify the data was saved by breaking and replacing the block — the capture process shouldn't crash.</p>
+        <p>Right-click the block. A screen should open with the default values pre-filled. Type new numbers and click Capture — it should close without crashing. The capture itself won't work visibly until Step 7.</p>
       </div>
     </div>
   </div>
 
+  <!-- STEP 7 -->
   <div class="step" id="step-7">
     <div class="step-header" onclick="toggleStep('step-7')">
       <div class="step-check" onclick="toggleDone(event,'step-7')">
@@ -549,8 +744,8 @@ player.sendSystemMessage(<span class="type">Component</span>.literal(<span class
       </div>
       <div class="step-number">7</div>
       <div class="step-meta">
-        <div class="step-title">Copy block entity data into the dropped item</div>
-        <div class="step-subtitle">Bridge the gap between the placed block and the carried item</div>
+        <div class="step-title">Capture the structure</div>
+        <div class="step-subtitle">Snapshot the house region and remove it from the world</div>
       </div>
       <div class="step-toggle">▼</div>
     </div>
@@ -558,32 +753,71 @@ player.sendSystemMessage(<span class="type">Component</span>.literal(<span class
       <div class="files">
         <span class="file-chip mod">~ PortableHouseBlock.java</span>
       </div>
-      <p>Override <code>getDrops()</code> in <code>PortableHouseBlock</code> to attach the block entity's NBT to the dropped item stack. Minecraft provides a helper that does this automatically:</p>
+      <p>Add a <code>public static captureHouse()</code> method to <code>PortableHouseBlock</code>. This is called from the packet handler registered in Step 6c.</p>
 
-      <pre><span class="kw">@Override</span>
-<span class="kw">public</span> <span class="type">List</span>&lt;<span class="type">ItemStack</span>&gt; getDrops(
-    <span class="type">BlockState</span> state, <span class="type">LootParams.Builder</span> builder
-) {
-    <span class="type">BlockEntity</span> be = builder.getOptionalParameter(<span class="type">LootContextParams</span>.BLOCK_ENTITY);
-    <span class="type">ItemStack</span> stack = <span class="kw">new</span> <span class="type">ItemStack</span>(<span class="kw">this</span>);
-    <span class="kw">if</span> (be != <span class="kw">null</span>) {
-        be.saveToItem(stack, builder.create(<span class="type">LootContextParamSets</span>.EMPTY).getLevel().registryAccess());
-    }
-    <span class="kw">return</span> List.of(stack);
+      <pre><span class="kw">public static void</span> captureHouse(<span class="type">ServerLevel</span> level, <span class="type">BlockPos</span> pos,
+                                  <span class="type">PortableHouseBlockEntity</span> be) {
+    <span class="type">BlockPos</span> absoluteMin = pos.offset(be.relativeMin);
+    <span class="type">BlockPos</span> sizePos     = <span class="kw">new</span> <span class="type">BlockPos</span>(be.size.getX(), be.size.getY(), be.size.getZ());
+
+    <span class="comment">// Snapshot the region</span>
+    <span class="type">StructureTemplate</span> template = <span class="kw">new</span> <span class="type">StructureTemplate</span>();
+    template.fillFromWorld(level, absoluteMin, sizePos, <span class="kw">false</span>, Blocks.STRUCTURE_VOID);
+    be.houseData = template.save(<span class="kw">new</span> <span class="type">CompoundTag</span>());
+
+    <span class="comment">// Remove captured blocks from world — filtered blocks stay (they're background terrain)</span>
+    <span class="type">Set</span>&lt;<span class="type">Block</span>&gt; filtered = be.blockFilter.stream()
+        .map(id -> <span class="type">BuiltInRegistries</span>.BLOCK.get(<span class="type">Identifier</span>.parse(id)))
+        .filter(b -> b != Blocks.AIR)
+        .collect(<span class="type">Collectors</span>.toSet());
+
+    <span class="type">BlockPos</span>.betweenClosed(absoluteMin,
+            absoluteMin.offset(be.size.getX()-1, be.size.getY()-1, be.size.getZ()-1))
+        .forEach(p -> {
+            <span class="kw">if</span> (p.equals(pos)) <span class="kw">return</span>; <span class="comment">// never remove the portable house block itself</span>
+            <span class="kw">if</span> (!filtered.contains(level.getBlockState(p).getBlock()))
+                level.removeBlock(p, <span class="kw">false</span>);
+        });
+
+    be.setChanged();
+    level.sendBlockUpdated(pos, level.getBlockState(pos), level.getBlockState(pos), 3);
 }</pre>
 
       <div class="callout concept">
-        <div class="callout-label">Key Concept — saveToItem()</div>
-        <p><code>BlockEntity.saveToItem()</code> calls your <code>saveAdditional()</code> internally and stores everything under a special <code>BlockEntityTag</code> component on the item stack. This is exactly how vanilla handles chests keeping their inventory when broken — you don't need to manually copy individual fields.</p>
+        <div class="callout-label">Key Concept — Block filtering via StructureProcessor</div>
+        <p>The <code>houseData</code> NBT stores <em>all</em> blocks in the region, including filtered ones. The filter is applied <em>on restore</em> using a <code>StructureProcessor</code> that returns <code>null</code> for any block in the filter list — <code>placeInWorld()</code> skips null results. This means filtered blocks are simply not placed at the destination; whatever is naturally at those positions shows through.</p>
+        <pre><span class="kw">class</span> <span class="type">BlockFilterProcessor</span> <span class="kw">extends</span> <span class="type">StructureProcessor</span> {
+    <span class="kw">private final</span> <span class="type">Set</span>&lt;<span class="type">Block</span>&gt; filtered;
+    <span class="type">BlockFilterProcessor</span>(<span class="type">Set</span>&lt;<span class="type">Block</span>&gt; f) { <span class="kw">this</span>.filtered = f; }
+
+    <span class="kw">@Override</span>
+    <span class="kw">public</span> <span class="type">StructureBlockInfo</span> processBlock(<span class="type">LevelReader</span> level,
+            <span class="type">BlockPos</span> offset, <span class="type">BlockPos</span> pos,
+            <span class="type">StructureBlockInfo</span> original, <span class="type">StructureBlockInfo</span> relative,
+            <span class="type">StructurePlaceSettings</span> settings) {
+        <span class="kw">return</span> filtered.contains(relative.state().getBlock()) ? <span class="kw">null</span> : relative;
+    }
+
+    <span class="kw">@Override protected</span> <span class="type">StructureProcessorType</span>&lt;?&gt; getType() {
+        <span class="kw">return</span> <span class="type">StructureProcessorType</span>.NOOP;
+    }
+}</pre>
+        <p>You'll use this class in Step 10 when calling <code>placeInWorld()</code>.</p>
+      </div>
+
+      <div class="callout concept">
+        <div class="callout-label">Key Concept — StructureTemplate</div>
+        <p><code>StructureTemplate</code> is the same system Minecraft uses for structure blocks. <code>fillFromWorld()</code> records every block's <code>BlockState</code> <em>and</em> block entity NBT (chest contents, sign text, etc.). <code>template.save()</code> turns it into a <code>CompoundTag</code> you can store anywhere.</p>
       </div>
 
       <div class="callout test">
         <div class="callout-label">Test</div>
-        <p>Right-click to capture, then break the block. Hold the dropped item and run <code>/data get entity @s SelectedItem</code> in chat. You should see a large NBT blob containing <code>houseData</code> nested inside — that's your entire house structure sitting in the item.</p>
+        <p>Open the GUI, set a small region (e.g. min=-3,-2,-3, size=6,4,6), click Capture. The blocks in that region should vanish from the world. Breaking the block should give you an item.</p>
       </div>
     </div>
   </div>
 
+  <!-- STEP 8 -->
   <div class="step" id="step-8">
     <div class="step-header" onclick="toggleStep('step-8')">
       <div class="step-check" onclick="toggleDone(event,'step-8')">
@@ -593,27 +827,41 @@ player.sendSystemMessage(<span class="type">Component</span>.literal(<span class
       </div>
       <div class="step-number">8</div>
       <div class="step-meta">
-        <div class="step-title">Create a custom BlockItem subclass</div>
-        <div class="step-subtitle">Learn how to override placement behaviour</div>
+        <div class="step-title">Copy the BlockEntity data into the dropped item</div>
+        <div class="step-subtitle">Bridge the gap between the placed block and the carried item</div>
       </div>
       <div class="step-toggle">▼</div>
     </div>
     <div class="step-body">
       <div class="files">
-        <span class="file-chip new">+ PortableHouseBlockItem.java</span>
-        <span class="file-chip mod">~ ModBlocks.java</span>
+        <span class="file-chip mod">~ PortableHouseBlock.java</span>
       </div>
-      <p>Create <code>PortableHouseBlockItem.java</code> extending <code>BlockItem</code>. Override <code>place(BlockPlaceContext context)</code>. For now just call <code>super.place(context)</code> and return the result — this makes the item behave exactly as before.</p>
+      <p>Override <code>getDrops()</code> in <code>PortableHouseBlock</code>:</p>
 
-      <p>In <code>ModBlocks.java</code>, replace <code>new BlockItem(block, ...)</code> with <code>new PortableHouseBlockItem(block, ...)</code>.</p>
+      <pre><span class="kw">@Override</span>
+<span class="kw">public</span> <span class="type">List</span>&lt;<span class="type">ItemStack</span>&gt; getDrops(<span class="type">BlockState</span> state, <span class="type">LootParams.Builder</span> builder) {
+    <span class="type">BlockEntity</span> be = builder.getOptionalParameter(<span class="type">LootContextParams</span>.BLOCK_ENTITY);
+    <span class="type">ItemStack</span> stack = <span class="kw">new</span> <span class="type">ItemStack</span>(<span class="kw">this</span>);
+    <span class="kw">if</span> (be != <span class="kw">null</span>) {
+        be.saveToItem(stack, builder.create(<span class="type">LootContextParamSets</span>.EMPTY)
+            .getLevel().registryAccess());
+    }
+    <span class="kw">return</span> List.of(stack);
+}</pre>
+
+      <div class="callout concept">
+        <div class="callout-label">Key Concept — saveToItem()</div>
+        <p>Calls your <code>saveAdditional()</code> internally and stores everything under a special <code>BlockEntityTag</code> component on the item stack. This is exactly how vanilla chests keep their inventory when broken — no manual field copying needed. All five fields (<code>relativeMin</code>, <code>size</code>, <code>blockFilter</code>, <code>houseData</code>, <code>terrainData</code>) travel with the item automatically.</p>
+      </div>
 
       <div class="callout test">
         <div class="callout-label">Test</div>
-        <p>The item should still place the block normally. Confirm nothing broke before adding restoration logic in the next step.</p>
+        <p>Capture a region, break the block. Hold the dropped item and run <code>/data get entity @s SelectedItem</code>. You should see a large NBT blob with <code>houseData</code> nested inside it.</p>
       </div>
     </div>
   </div>
 
+  <!-- STEP 9 -->
   <div class="step" id="step-9">
     <div class="step-header" onclick="toggleStep('step-9')">
       <div class="step-check" onclick="toggleDone(event,'step-9')">
@@ -623,53 +871,40 @@ player.sendSystemMessage(<span class="type">Component</span>.literal(<span class
       </div>
       <div class="step-number">9</div>
       <div class="step-meta">
-        <div class="step-title">Restore the structure on place</div>
-        <div class="step-subtitle">Read NBT from the item and reconstruct the house</div>
+        <div class="step-title">Create a custom BlockItem subclass</div>
+        <div class="step-subtitle">Get a hook point to override placement behaviour</div>
       </div>
       <div class="step-toggle">▼</div>
     </div>
     <div class="step-body">
       <div class="files">
-        <span class="file-chip mod">~ PortableHouseBlockItem.java</span>
+        <span class="file-chip new">+ PortableHouseBlockItem.java</span>
+        <span class="file-chip mod">~ ModBlocks.java</span>
       </div>
-      <p>After <code>super.place(context)</code> succeeds, get the newly placed block's position from the context, then read the stored structure and replay it into the world:</p>
+      <p>Create <code>PortableHouseBlockItem.java</code> extending <code>BlockItem</code>. Just pass through for now:</p>
 
-      <pre><span class="type">InteractionResult</span> result = <span class="kw">super</span>.place(context);
-<span class="kw">if</span> (!result.consumesAction()) <span class="kw">return</span> result;
+      <pre><span class="kw">public class</span> <span class="type">PortableHouseBlockItem</span> <span class="kw">extends</span> <span class="type">BlockItem</span> {
+    <span class="kw">public</span> <span class="type">PortableHouseBlockItem</span>(<span class="type">Block</span> block, <span class="type">Item.Properties</span> properties) {
+        <span class="kw">super</span>(block, properties);
+    }
 
-<span class="type">Level</span> level = context.getLevel();
-<span class="kw">if</span> (level.isClientSide()) <span class="kw">return</span> result;
+    <span class="kw">@Override</span>
+    <span class="kw">public</span> <span class="type">InteractionResult</span> place(<span class="type">BlockPlaceContext</span> context) {
+        <span class="kw">return super</span>.place(context);
+    }
+}</pre>
 
-<span class="type">BlockPos</span> placedPos = context.getClickedPos();
-<span class="type">PortableHouseBlockEntity</span> be =
-    (<span class="type">PortableHouseBlockEntity</span>) level.getBlockEntity(placedPos);
-<span class="kw">if</span> (be == <span class="kw">null</span> || be.houseData == <span class="kw">null</span>) <span class="kw">return</span> result;
-
-<span class="type">StructureTemplate</span> template = <span class="kw">new</span> <span class="type">StructureTemplate</span>();
-template.load(level.registryAccess(), be.houseData);
-
-<span class="comment">// minCorner was stored relative to the original placement —</span>
-<span class="comment">// recalculate it relative to the new placement position</span>
-<span class="type">BlockPos</span> offset = be.minCorner; <span class="comment">// you'll refine this in Step 10</span>
-template.placeInWorld(
-    level, offset, offset,
-    <span class="kw">new</span> <span class="type">StructurePlaceSettings</span>(),
-    level.getRandom(), 2
-);
-<span class="kw">return</span> result;</pre>
-
-      <div class="callout warning">
-        <div class="callout-label">Note — Relative Offsets</div>
-        <p>The min corner saved in Step 5 is an absolute world position. When the player places the item somewhere else, you need the corner <em>relative to the portable house block</em>, then add the new placement position. Update your block entity to store the offset as a relative <code>Vec3i</code> rather than an absolute position — e.g. <code>(-10, -5, -10)</code> — and reconstruct the absolute position at restore time using <code>placedPos.offset(storedOffset)</code>.</p>
-      </div>
+      <p>In <code>ModBlocks.java</code>, replace <code>new BlockItem(block, ...)</code> with:</p>
+      <pre><span class="kw">new</span> <span class="type">PortableHouseBlockItem</span>(block, <span class="kw">new</span> <span class="type">Item.Properties</span>().setId(itemKey).useBlockDescriptionPrefix())</pre>
 
       <div class="callout test">
         <div class="callout-label">Test</div>
-        <p>Right-click to capture the house, break the block, walk to an empty area, place the item. The house should rebuild around the new position.</p>
+        <p>The item should still place the block normally. Nothing should change visually.</p>
       </div>
     </div>
   </div>
 
+  <!-- STEP 10 -->
   <div class="step" id="step-10">
     <div class="step-header" onclick="toggleStep('step-10')">
       <div class="step-check" onclick="toggleDone(event,'step-10')">
@@ -679,47 +914,68 @@ template.placeInWorld(
       </div>
       <div class="step-number">10</div>
       <div class="step-meta">
-        <div class="step-title">Remove the original blocks on pickup</div>
-        <div class="step-subtitle">Make the house actually travel with the item</div>
+        <div class="step-title">Save terrain then restore house on place</div>
+        <div class="step-subtitle">Snapshot what's there first, then rebuild the house</div>
       </div>
       <div class="step-toggle">▼</div>
     </div>
     <div class="step-body">
       <div class="files">
-        <span class="file-chip mod">~ PortableHouseBlock.java</span>
+        <span class="file-chip mod">~ PortableHouseBlockItem.java</span>
       </div>
-      <p>Override <code>onRemove()</code> in <code>PortableHouseBlock</code>. This fires when the block leaves the world. Get the block entity, check that it has a captured structure, then clear every block in the saved region:</p>
+      <p>Override <code>place()</code> in <code>PortableHouseBlockItem</code>. After the block is placed, save the terrain at that location and then restore the house structure:</p>
 
       <pre><span class="kw">@Override</span>
-<span class="kw">public void</span> onRemove(
-    <span class="type">BlockState</span> state, <span class="type">Level</span> level, <span class="type">BlockPos</span> pos,
-    <span class="type">BlockState</span> newState, <span class="kw">boolean</span> movedByPiston
-) {
-    <span class="kw">if</span> (!level.isClientSide() && !state.is(newState.getBlock())) {
-        <span class="type">PortableHouseBlockEntity</span> be =
-            (<span class="type">PortableHouseBlockEntity</span>) level.getBlockEntity(pos);
-        <span class="kw">if</span> (be != <span class="kw">null</span> && be.houseData != <span class="kw">null</span>) {
-            <span class="type">BlockPos</span> min = pos.offset(be.storedOffset);
-            <span class="type">BlockPos</span> max = min.offset(be.size); <span class="comment">// size you recorded in step 5</span>
-            <span class="type">BlockPos</span>.betweenClosed(min, max)
-                .forEach(p -> level.removeBlock(p, <span class="kw">false</span>));
-        }
-    }
-    <span class="kw">super</span>.onRemove(state, level, pos, newState, movedByPiston);
+<span class="kw">public</span> <span class="type">InteractionResult</span> place(<span class="type">BlockPlaceContext</span> context) {
+    <span class="type">InteractionResult</span> result = <span class="kw">super</span>.place(context);
+    <span class="kw">if</span> (!result.consumesAction()) <span class="kw">return</span> result;
+
+    <span class="type">Level</span> level = context.getLevel();
+    <span class="kw">if</span> (level.isClientSide()) <span class="kw">return</span> result;
+
+    <span class="type">BlockPos</span> placedPos = context.getClickedPos();
+    <span class="kw">if</span> (!(level.getBlockEntity(placedPos) <span class="kw">instanceof</span> <span class="type">PortableHouseBlockEntity</span> be)
+            || be.houseData == <span class="kw">null</span>) <span class="kw">return</span> result;
+
+    <span class="type">BlockPos</span> absoluteMin = placedPos.offset(be.relativeMin);
+    <span class="type">BlockPos</span> sizePos     = <span class="kw">new</span> <span class="type">BlockPos</span>(be.size.getX(), be.size.getY(), be.size.getZ());
+
+    <span class="comment">// 1. Save whatever is currently in this space</span>
+    <span class="type">StructureTemplate</span> terrain = <span class="kw">new</span> <span class="type">StructureTemplate</span>();
+    terrain.fillFromWorld(level, absoluteMin, sizePos, <span class="kw">false</span>, Blocks.STRUCTURE_VOID);
+    be.terrainData = terrain.save(<span class="kw">new</span> <span class="type">CompoundTag</span>());
+
+    <span class="comment">// 2. Restore the house, skipping filtered blocks via StructureProcessor</span>
+    <span class="type">Set</span>&lt;<span class="type">Block</span>&gt; filtered = be.blockFilter.stream()
+        .map(id -> <span class="type">BuiltInRegistries</span>.BLOCK.get(<span class="type">Identifier</span>.parse(id)))
+        .filter(b -> b != Blocks.AIR)
+        .collect(<span class="type">Collectors</span>.toSet());
+    <span class="type">StructurePlaceSettings</span> settings = <span class="kw">new</span> <span class="type">StructurePlaceSettings</span>()
+        .addProcessor(<span class="kw">new</span> <span class="type">BlockFilterProcessor</span>(filtered));
+
+    <span class="type">StructureTemplate</span> house = <span class="kw">new</span> <span class="type">StructureTemplate</span>();
+    house.load(level.registryAccess(), be.houseData);
+    house.placeInWorld(level, absoluteMin, absoluteMin, settings, level.getRandom(), 2);
+
+    be.setChanged();
+    level.sendBlockUpdated(placedPos, level.getBlockState(placedPos),
+        level.getBlockState(placedPos), 3);
+    <span class="kw">return</span> result;
 }</pre>
 
       <div class="callout warning">
-        <div class="callout-label">Important</div>
-        <p>Always call <code>super.onRemove()</code> <em>after</em> your logic. The super call detaches and destroys the block entity — if you call it first, <code>level.getBlockEntity(pos)</code> returns null and you lose the data.</p>
+        <div class="callout-label">Note — Relative offsets</div>
+        <p><code>absoluteMin</code> is computed from <code>placedPos</code> (the new placement position), not the original capture position. Because <code>relativeMin</code> is stored relative to the block, <code>placedPos.offset(relativeMin)</code> always gives the correct absolute min corner wherever in the world the item is placed.</p>
       </div>
 
       <div class="callout test">
         <div class="callout-label">Test</div>
-        <p>Build a small room, place and right-click the block to capture it, then break it. The room should disappear. Walk elsewhere and place the item — the room should reappear. This is the full loop working end-to-end.</p>
+        <p>Capture a region, break the block, walk somewhere new, place the item. The house should rebuild at the new location. The terrain underneath should be overwritten (but saved internally).</p>
       </div>
     </div>
   </div>
 
+  <!-- STEP 11 -->
   <div class="step" id="step-11">
     <div class="step-header" onclick="toggleStep('step-11')">
       <div class="step-check" onclick="toggleDone(event,'step-11')">
@@ -729,20 +985,84 @@ template.placeInWorld(
       </div>
       <div class="step-number">11</div>
       <div class="step-meta">
+        <div class="step-title">Restore terrain on pickup</div>
+        <div class="step-subtitle">Remove the house and put back what was there before</div>
+      </div>
+      <div class="step-toggle">▼</div>
+    </div>
+    <div class="step-body">
+      <div class="files">
+        <span class="file-chip mod">~ PortableHouseBlock.java</span>
+      </div>
+      <p>Override <code>onRemove()</code> in <code>PortableHouseBlock</code>. This fires whenever the block is removed from the world for any reason.</p>
+
+      <pre><span class="kw">@Override</span>
+<span class="kw">public void</span> onRemove(<span class="type">BlockState</span> state, <span class="type">Level</span> level, <span class="type">BlockPos</span> pos,
+                     <span class="type">BlockState</span> newState, <span class="kw">boolean</span> movedByPiston) {
+    <span class="kw">if</span> (!level.isClientSide() && !state.is(newState.getBlock())) {
+        <span class="kw">if</span> (level.getBlockEntity(pos) <span class="kw">instanceof</span> <span class="type">PortableHouseBlockEntity</span> be) {
+            <span class="type">BlockPos</span> absoluteMin = pos.offset(be.relativeMin);
+
+            <span class="kw">if</span> (be.terrainData != <span class="kw">null</span>) {
+                <span class="comment">// Restore the terrain that was here before the house was placed</span>
+                <span class="type">StructureTemplate</span> terrain = <span class="kw">new</span> <span class="type">StructureTemplate</span>();
+                terrain.load(level.registryAccess(), be.terrainData);
+                terrain.placeInWorld(level, absoluteMin, absoluteMin,
+                    <span class="kw">new</span> <span class="type">StructurePlaceSettings</span>(), level.getRandom(), 2);
+
+            } <span class="kw">else if</span> (be.houseData != <span class="kw">null</span>) {
+                <span class="comment">// First pickup after original capture — no terrain to restore,</span>
+                <span class="comment">// just clear the region so the house vanishes</span>
+                <span class="type">BlockPos</span>.betweenClosed(
+                    absoluteMin,
+                    absoluteMin.offset(be.size.getX()-1, be.size.getY()-1, be.size.getZ()-1)
+                ).forEach(p -> {
+                    <span class="kw">if</span> (!p.equals(pos)) level.removeBlock(p, <span class="kw">false</span>);
+                });
+            }
+        }
+    }
+    <span class="kw">super</span>.onRemove(state, level, pos, newState, movedByPiston); <span class="comment">// MUST be last</span>
+}</pre>
+
+      <div class="callout warning">
+        <div class="callout-label">Critical — Call super last</div>
+        <p>Always call <code>super.onRemove()</code> <em>after</em> your logic. The super call destroys the block entity — if you call it first, <code>level.getBlockEntity(pos)</code> returns null and you lose all your data.</p>
+      </div>
+
+      <div class="callout test">
+        <div class="callout-label">Test — full loop</div>
+        <p>1. Build a small room. 2. Place the portable house block, right-click, set the region to cover the room, click Capture. Room vanishes. 3. Break the block, walk somewhere else, place the item. Room rebuilds. 4. Break the block again. Room vanishes and the terrain/ground from step 3's location is restored.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 12 -->
+  <div class="step" id="step-12">
+    <div class="step-header" onclick="toggleStep('step-12')">
+      <div class="step-check" onclick="toggleDone(event,'step-12')">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step-number">12</div>
+      <div class="step-meta">
         <div class="step-title">Polish and edge cases</div>
         <div class="step-subtitle">Make it feel like a real feature</div>
       </div>
       <div class="step-toggle">▼</div>
     </div>
     <div class="step-body">
-      <p>Once the full loop works, things to add:</p>
+      <p>Once the full loop works, add:</p>
       <ul class="method-list">
-        <li>Play a sound on capture and restore — <code>level.playSound(null, pos, SoundEvents.ENDERMAN_TELEPORT, SoundSource.BLOCKS, 1f, 1f)</code></li>
-        <li>Spawn particles on restore — <code>level.addParticle(...)</code> in a loop around the region</li>
-        <li>Make the capture radius configurable — shift+right-click to cycle through preset sizes, stored in the block entity</li>
-        <li>Guard against placing into occupied space — check if the target area has non-air blocks before restoring</li>
-        <li>Show the capture region visually — spawn temporary outline particles when right-clicked so the player can see what will be captured</li>
-        <li>Handle the portable house inside a portable house — already works for free since <code>StructureTemplate</code> saves block entity NBT recursively</li>
+        <li><strong>Sound on capture:</strong> <code>level.playSound(null, pos, SoundEvents.ENDERMAN_TELEPORT, SoundSource.BLOCKS, 1f, 1f)</code></li>
+        <li><strong>Sound on restore:</strong> <code>SoundEvents.BEACON_ACTIVATE</code> at lower volume feels good for a house appearing</li>
+        <li><strong>Particles on restore:</strong> loop around the region edges and spawn <code>ParticleTypes.PORTAL</code> particles</li>
+        <li><strong>Guard occupied space:</strong> before restoring, scan the target region — if it has non-air/non-liquid blocks, warn the player and return early instead of overwriting</li>
+        <li><strong>Visual region preview:</strong> after the GUI closes, briefly spawn outline particles so the player can see the capture bounds before they commit</li>
+        <li><strong>Rotation support:</strong> store the player's facing direction at capture time; at restore time pass a matching <code>Rotation</code> to <code>StructurePlaceSettings.setRotation()</code> so the house always faces correctly</li>
+        <li><strong>Wand selection (future):</strong> a separate wand item lets the player click two block corners to set the region. Add a <code>boolean triggerCapture</code> field to <code>UpdatePortableHouseRegionPayload</code> so the wand can update the region without capturing, and the player can confirm separately in the GUI</li>
+        <li><strong>Nested portable houses:</strong> already works for free — <code>StructureTemplate</code> saves block entity NBT recursively</li>
       </ul>
     </div>
   </div>
